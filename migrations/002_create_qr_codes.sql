@@ -1,5 +1,6 @@
 -- NOTE: requires auth.users table created by rust-generic-user-backend
--- migrations FIRST. Deploy auth service migrations before qr-api migrations.
+-- migrations FIRST. Auth service owns the `auth` schema.
+-- Deploy auth service migrations before qr-api migrations.
 CREATE TABLE qr.qr_codes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,

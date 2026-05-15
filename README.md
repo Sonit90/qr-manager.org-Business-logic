@@ -22,10 +22,12 @@ crates/
 └── db/       SQLx models + repositories
 ```
 
-**Database isolation**: shared Postgres instance (owned by auth service), separate schemas.
+**Database**: shared Postgres instance owned by auth service.
 
-- `auth.*` — owned by rust-generic-user-backend service (Postgres at `localhost:5434`)
-- `qr.*`   — owned by this service (in the same DB)
+- `auth.*` — owned by rust-generic-user-backend (Postgres at `localhost:5434`). Tables: `users`, `roles`, `refresh_tokens`, etc.
+- `qr.*`   — owned by this service (same DB, different schema)
+
+Each service tracks its migrations in its OWN `_sqlx_migrations` table — auth's in `auth._sqlx_migrations`, qr's in `qr._sqlx_migrations`. Per-connection `search_path` override gives each service its own isolated migration tracking.
 
 FK: `qr.qr_codes.user_id REFERENCES auth.users(id) ON DELETE CASCADE`. Deleting a user cascades to their QR codes (no orphans).
 
