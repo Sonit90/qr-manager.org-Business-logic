@@ -98,6 +98,7 @@ Hit `http://localhost:3001/swagger-ui` for interactive API docs.
 | `APP__AUTH__JWT_ISSUER`               | no       | `generic-auth`                             | Must match `iss` claim issued      |
 | `APP__AUTH__JWT_ACCESS_TTL_MIN`       | no       | `30`                                       |                                    |
 | `APP__AUTH__JWT_REFRESH_TTL_DAYS`     | no       | `14`                                       |                                    |
+| `APP__CORS__ALLOWED_ORIGINS`          | prod     | empty                                      | Comma-separated; ignored in dev    |
 | `DISABLED_QR_FRONTEND_URL`            | no       | `http://localhost:3000/qr-disabled`        | Redirect target for disabled QRs   |
 | `REDIRECT_BASE_URL`                   | no       | `http://localhost:3001/r`                  | Embedded in PNG QR images          |
 

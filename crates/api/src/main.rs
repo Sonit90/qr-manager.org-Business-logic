@@ -1,8 +1,11 @@
 use anyhow::{Context, Result};
-use axum::Router;
+use axum::{http::Method, Router};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    cors::{AllowOrigin, Any, CorsLayer},
+    trace::TraceLayer,
+};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -50,6 +53,7 @@ async fn main() -> Result<()> {
 
     let app: Router = build_router(state.clone())
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(build_cors_layer(&config))
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = format!("{}:{}", config.server_host, config.server_port)
@@ -67,6 +71,32 @@ async fn main() -> Result<()> {
     .await?;
 
     Ok(())
+}
+
+fn build_cors_layer(config: &AppConfig) -> CorsLayer {
+    if config.is_development() {
+        return CorsLayer::permissive();
+    }
+
+    let origins: Vec<_> = config
+        .cors
+        .allowed_origins
+        .iter()
+        .filter_map(|o| o.parse().ok())
+        .collect();
+
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(Any)
+        .allow_credentials(false)
 }
 
 fn init_tracing(config: &AppConfig) {

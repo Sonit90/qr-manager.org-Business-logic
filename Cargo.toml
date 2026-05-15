@@ -15,7 +15,7 @@ tokio = { version = "1.39", features = ["full"] }
 
 # HTTP stack (Axum)
 axum = { version = "0.8", features = ["macros"] }
-tower-http = { version = "0.6", features = ["trace"] }
+tower-http = { version = "0.6", features = ["trace", "cors"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

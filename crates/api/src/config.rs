@@ -8,6 +8,7 @@ pub struct AppConfig {
     pub server_port: u16,
     pub database_url: String,
     pub auth: AuthConfig,
+    pub cors: CorsConfig,
     pub disabled_qr_frontend_url: String,
     pub redirect_base_url: String,
 }
@@ -18,6 +19,11 @@ pub struct AuthConfig {
     pub jwt_issuer: String,
     pub jwt_access_ttl_min: i64,
     pub jwt_refresh_ttl_days: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CorsConfig {
+    pub allowed_origins: Vec<String>,
 }
 
 impl AppConfig {
@@ -43,6 +49,15 @@ impl AppConfig {
                     .unwrap_or_else(|_| "14".to_string())
                     .parse()
                     .context("invalid APP__AUTH__JWT_REFRESH_TTL_DAYS")?,
+            },
+            cors: CorsConfig {
+                allowed_origins: env::var("APP__CORS__ALLOWED_ORIGINS")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect(),
             },
             disabled_qr_frontend_url: env::var("DISABLED_QR_FRONTEND_URL")
                 .unwrap_or_else(|_| "http://localhost:3000/qr-disabled".to_string()),
