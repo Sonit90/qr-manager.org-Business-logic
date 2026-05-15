@@ -17,10 +17,13 @@ services:
     volumes:
       - rustfs_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/minio/health/live || exit 1"]
+      # rustfs lacks a dedicated health endpoint; check S3 API root.
+      # 403 (anonymous access denied) is fine — means service is up.
+      test: ["CMD-SHELL", "wget --spider -S http://localhost:9000/ 2>&1 | grep -qE 'HTTP/.* (200|403)'"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   rustfs-init:
     image: minio/mc:latest

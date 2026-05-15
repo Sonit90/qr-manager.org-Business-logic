@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
     let state = AppState::new(pool, config.clone());
 
     let app: Router = build_router(state.clone())
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
         .layer(build_cors_layer(&config))
         .layer(TraceLayer::new_for_http());
 
