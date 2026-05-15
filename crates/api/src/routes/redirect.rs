@@ -1,62 +1,55 @@
-use actix_web::{web, HttpRequest, HttpResponse, Result};
-use sqlx::PgPool;
-
+use axum::{
+    extract::{ConnectInfo, Path, State},
+    http::{header, HeaderMap},
+    response::Redirect,
+};
+use qr_db::QrRepository;
 use qr_domain::{QrManager, ScanLogger};
+use std::net::SocketAddr;
 
-#[get("/{qr_code}")]
+use crate::{error::AppError, state::AppState};
+
+#[utoipa::path(
+    get,
+    path = "/r/{qr_code}",
+    tag = "Public",
+    params(("qr_code" = String, Path, description = "QR code identifier")),
+    responses(
+        (status = 302, description = "Redirect to target URL or disabled page"),
+        (status = 404, description = "QR code not found")
+    )
+)]
 pub async fn redirect_qr(
-    qr_code: web::Path<String>,
-    pool: web::Data<PgPool>,
-    req: HttpRequest,
-) -> Result<HttpResponse> {
-    let code = qr_code.into_inner();
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(qr_code): Path<String>,
+) -> Result<Redirect, AppError> {
+    let qr = QrManager::get_qr_by_code(&state.pool, &qr_code)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    // Fetch QR and target URL
-    match QrManager::get_qr_by_code(&pool, &code).await {
-        Ok(Some(qr)) => {
-            // Log scan
-            let ip = req.connection_info().peer_addr().map(|s| s.to_string());
-            let user_agent = req
-                .headers()
-                .get("User-Agent")
-                .and_then(|h| h.to_str().ok())
-                .map(|s| s.to_string());
+    let ip = Some(addr.ip().to_string());
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
 
-            if let Err(e) = ScanLogger::log_scan(&pool, qr.id, ip, user_agent).await {
-                log::warn!("Failed to log scan: {}", e);
-            }
-
-            // Check if enabled
-            if !qr.enabled {
-                let disabled_url = std::env::var("DISABLED_QR_FRONTEND_URL")
-                    .unwrap_or_else(|_| "http://localhost:3000/qr-disabled".to_string());
-                let redirect_with_param = format!("{}?qr_id={}", disabled_url, qr.id);
-                return Ok(HttpResponse::Found()
-                    .insert_header(("Location", redirect_with_param))
-                    .finish());
-            }
-
-            // Get target URL
-            match qr_db::QrRepository::get_current_target_url(&pool, qr.id).await {
-                Ok(Some(target_url)) => {
-                    Ok(HttpResponse::Found()
-                        .insert_header(("Location", target_url))
-                        .finish())
-                }
-                Ok(None) => {
-                    log::warn!("No target URL found for QR: {}", qr.id);
-                    Ok(HttpResponse::NotFound().finish())
-                }
-                Err(e) => {
-                    log::error!("Failed to fetch target URL: {}", e);
-                    Ok(HttpResponse::InternalServerError().finish())
-                }
-            }
-        }
-        Ok(None) => Ok(HttpResponse::NotFound().finish()),
-        Err(e) => {
-            log::error!("Failed to fetch QR: {}", e);
-            Ok(HttpResponse::InternalServerError().finish())
-        }
+    if let Err(e) = ScanLogger::log_scan(&state.pool, qr.id, ip, user_agent).await {
+        tracing::warn!(error = ?e, qr_id = %qr.id, "Failed to log scan");
     }
+
+    if !qr.enabled {
+        let url = format!(
+            "{}?qr_id={}",
+            state.config.disabled_qr_frontend_url, qr.id
+        );
+        return Ok(Redirect::to(&url));
+    }
+
+    let target_url = QrRepository::get_current_target_url(&state.pool, qr.id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+    Ok(Redirect::to(&target_url))
 }

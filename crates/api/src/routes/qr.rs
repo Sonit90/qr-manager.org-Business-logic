@@ -1,283 +1,288 @@
-use actix_web::{web, HttpResponse, Result};
-use sqlx::PgPool;
+use axum::{
+    extract::{Path, State},
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
+    Json,
+};
+use qr_db::{models::*, QrRepository};
+use qr_domain::{QrImageGenerator, QrManager, ScanLogger};
 use uuid::Uuid;
 
-use qr_domain::{QrManager, ScanLogger, QrImageGenerator};
-use qr_api::extractors::AuthenticatedUser;
-use qr_db::models::*;
+use crate::{
+    error::{AppError, AppResult},
+    extractors::AuthUser,
+    state::AppState,
+};
 
-#[post("/")]
+#[utoipa::path(
+    post,
+    path = "/api/v1/qr",
+    tag = "QR",
+    request_body = CreateQrRequest,
+    responses(
+        (status = 201, description = "QR code created", body = QrCodeResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create_qr(
-    user: AuthenticatedUser,
-    pool: web::Data<PgPool>,
-    req: web::Json<CreateQrRequest>,
-) -> Result<HttpResponse> {
-    match QrManager::create_qr(&pool, user.0.id, req.target_url.clone()).await {
-        Ok((qr, target_url)) => {
-            let response = QrCodeResponse {
-                id: qr.id,
-                code: qr.code,
-                target_url: target_url.url,
-                enabled: qr.enabled,
-                scan_count: 0,
-                created_at: qr.created_at,
-                updated_at: qr.updated_at,
-            };
-            Ok(HttpResponse::Created().json(response))
-        }
-        Err(e) => {
-            log::error!("Failed to create QR: {}", e);
-            Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e})))
-        }
-    }
+    user: AuthUser,
+    State(state): State<AppState>,
+    Json(req): Json<CreateQrRequest>,
+) -> AppResult<(StatusCode, Json<QrCodeResponse>)> {
+    let (qr, target_url) = QrManager::create_qr(&state.pool, user.id, req.target_url).await?;
+
+    let response = QrCodeResponse {
+        id: qr.id,
+        code: qr.code,
+        target_url: target_url.url,
+        enabled: qr.enabled,
+        scan_count: 0,
+        created_at: qr.created_at,
+        updated_at: qr.updated_at,
+    };
+
+    Ok((StatusCode::CREATED, Json(response)))
 }
 
-#[get("/")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/qr",
+    tag = "QR",
+    responses(
+        (status = 200, description = "List user's QR codes", body = [QrCodeResponse]),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list_user_qrs(
-    user: AuthenticatedUser,
-    pool: web::Data<PgPool>,
-) -> Result<HttpResponse> {
-    match QrManager::get_user_qrs(&pool, user.0.id).await {
-        Ok(qrs) => Ok(HttpResponse::Ok().json(qrs)),
-        Err(e) => {
-            log::error!("Failed to list QRs: {}", e);
-            Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e})))
-        }
-    }
+    user: AuthUser,
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<QrCodeResponse>>> {
+    let qrs = QrManager::get_user_qrs(&state.pool, user.id).await?;
+    Ok(Json(qrs))
 }
 
-#[get("/{id}")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/qr/{id}",
+    tag = "QR",
+    params(("id" = Uuid, Path, description = "QR code id")),
+    responses(
+        (status = 200, description = "QR code details", body = QrCodeResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Not found")
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn get_qr(
-    user: AuthenticatedUser,
-    pool: web::Data<PgPool>,
-    path: web::Path<Uuid>,
-) -> Result<HttpResponse> {
-    let qr_id = path.into_inner();
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(qr_id): Path<Uuid>,
+) -> AppResult<Json<QrCodeResponse>> {
+    let (qr, target_url) = QrManager::get_qr_with_target(&state.pool, qr_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    match QrManager::get_qr_with_target(&pool, qr_id).await {
-        Ok(Some((qr, target_url))) => {
-            // Verify ownership
-            if qr.user_id != user.0.id {
-                return Ok(HttpResponse::Forbidden().finish());
-            }
-
-            let scan_count = match qr_db::QrRepository::get_scan_count(&pool, qr_id).await {
-                Ok(count) => count,
-                Err(e) => {
-                    log::error!("Failed to get scan count: {}", e);
-                    return Ok(HttpResponse::InternalServerError().finish());
-                }
-            };
-
-            let response = QrCodeResponse {
-                id: qr.id,
-                code: qr.code,
-                target_url,
-                enabled: qr.enabled,
-                scan_count,
-                created_at: qr.created_at,
-                updated_at: qr.updated_at,
-            };
-            Ok(HttpResponse::Ok().json(response))
-        }
-        Ok(None) => Ok(HttpResponse::NotFound().finish()),
-        Err(e) => {
-            log::error!("Failed to get QR: {}", e);
-            Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e})))
-        }
+    if qr.user_id != user.id {
+        return Err(AppError::Forbidden);
     }
+
+    let scan_count = QrRepository::get_scan_count(&state.pool, qr_id).await?;
+
+    Ok(Json(QrCodeResponse {
+        id: qr.id,
+        code: qr.code,
+        target_url,
+        enabled: qr.enabled,
+        scan_count,
+        created_at: qr.created_at,
+        updated_at: qr.updated_at,
+    }))
 }
 
-#[put("/{id}/target")]
+#[utoipa::path(
+    put,
+    path = "/api/v1/qr/{id}/target",
+    tag = "QR",
+    params(("id" = Uuid, Path, description = "QR code id")),
+    request_body = UpdateTargetUrlRequest,
+    responses(
+        (status = 200, description = "Target URL updated", body = TargetUrlResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Not found")
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn update_target_url(
-    user: AuthenticatedUser,
-    pool: web::Data<PgPool>,
-    path: web::Path<Uuid>,
-    req: web::Json<UpdateTargetUrlRequest>,
-) -> Result<HttpResponse> {
-    let qr_id = path.into_inner();
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(qr_id): Path<Uuid>,
+    Json(req): Json<UpdateTargetUrlRequest>,
+) -> AppResult<Json<TargetUrlResponse>> {
+    let qr = QrRepository::get_qr_by_id(&state.pool, qr_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    // Verify ownership
-    match qr_db::QrRepository::get_qr_by_id(&pool, qr_id).await {
-        Ok(Some(qr)) if qr.user_id == user.0.id => {}
-        Ok(Some(_)) => return Ok(HttpResponse::Forbidden().finish()),
-        Ok(None) => return Ok(HttpResponse::NotFound().finish()),
-        Err(e) => {
-            log::error!("Failed to verify QR ownership: {}", e);
-            return Ok(HttpResponse::InternalServerError().finish());
-        }
+    if qr.user_id != user.id {
+        return Err(AppError::Forbidden);
     }
 
-    match QrManager::update_target_url(&pool, qr_id, req.url.clone()).await {
-        Ok(target_url) => {
-            let response = serde_json::json!({
-                "id": target_url.id,
-                "url": target_url.url,
-                "created_at": target_url.created_at
-            });
-            Ok(HttpResponse::Ok().json(response))
-        }
-        Err(e) => {
-            log::error!("Failed to update target URL: {}", e);
-            Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e})))
-        }
-    }
+    let target_url = QrManager::update_target_url(&state.pool, qr_id, req.url).await?;
+
+    Ok(Json(TargetUrlResponse {
+        id: target_url.id,
+        url: target_url.url,
+        created_at: target_url.created_at,
+    }))
 }
 
-#[patch("/{id}/enabled")]
+#[utoipa::path(
+    patch,
+    path = "/api/v1/qr/{id}/enabled",
+    tag = "QR",
+    params(("id" = Uuid, Path, description = "QR code id")),
+    request_body = ToggleEnabledRequest,
+    responses(
+        (status = 200, description = "QR enabled state updated", body = ToggleEnabledResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Not found")
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn toggle_qr_enabled(
-    user: AuthenticatedUser,
-    pool: web::Data<PgPool>,
-    path: web::Path<Uuid>,
-    req: web::Json<serde_json::json::Value>,
-) -> Result<HttpResponse> {
-    let qr_id = path.into_inner();
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(qr_id): Path<Uuid>,
+    Json(req): Json<ToggleEnabledRequest>,
+) -> AppResult<Json<ToggleEnabledResponse>> {
+    let qr = QrRepository::get_qr_by_id(&state.pool, qr_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    // Verify ownership
-    match qr_db::QrRepository::get_qr_by_id(&pool, qr_id).await {
-        Ok(Some(qr)) if qr.user_id == user.0.id => {}
-        Ok(Some(_)) => return Ok(HttpResponse::Forbidden().finish()),
-        Ok(None) => return Ok(HttpResponse::NotFound().finish()),
-        Err(e) => {
-            log::error!("Failed to verify QR ownership: {}", e);
-            return Ok(HttpResponse::InternalServerError().finish());
-        }
+    if qr.user_id != user.id {
+        return Err(AppError::Forbidden);
     }
 
-    let enabled = req.get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let updated = QrManager::toggle_qr_enabled(&state.pool, qr_id, req.enabled).await?;
 
-    match QrManager::toggle_qr_enabled(&pool, qr_id, enabled).await {
-        Ok(qr) => {
-            let response = serde_json::json!({
-                "id": qr.id,
-                "enabled": qr.enabled,
-                "updated_at": qr.updated_at
-            });
-            Ok(HttpResponse::Ok().json(response))
-        }
-        Err(e) => {
-            log::error!("Failed to toggle QR: {}", e);
-            Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e})))
-        }
-    }
+    Ok(Json(ToggleEnabledResponse {
+        id: updated.id,
+        enabled: updated.enabled,
+        updated_at: updated.updated_at,
+    }))
 }
 
-#[get("/{id}/image")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/qr/{id}/image",
+    tag = "QR",
+    params(("id" = Uuid, Path, description = "QR code id")),
+    responses(
+        (status = 200, description = "PNG image", content_type = "image/png"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Not found")
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn get_qr_image(
-    user: AuthenticatedUser,
-    pool: web::Data<PgPool>,
-    path: web::Path<Uuid>,
-) -> Result<HttpResponse> {
-    let qr_id = path.into_inner();
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(qr_id): Path<Uuid>,
+) -> AppResult<Response> {
+    let qr = QrRepository::get_qr_by_id(&state.pool, qr_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    // Verify ownership
-    match qr_db::QrRepository::get_qr_by_id(&pool, qr_id).await {
-        Ok(Some(qr)) if qr.user_id == user.0.id => {}
-        Ok(Some(_)) => return Ok(HttpResponse::Forbidden().finish()),
-        Ok(None) => return Ok(HttpResponse::NotFound().finish()),
-        Err(e) => {
-            log::error!("Failed to verify QR ownership: {}", e);
-            return Ok(HttpResponse::InternalServerError().finish());
-        }
+    if qr.user_id != user.id {
+        return Err(AppError::Forbidden);
     }
 
-    // Get target URL
-    match qr_db::QrRepository::get_current_target_url(&pool, qr_id).await {
-        Ok(Some(_)) => {
-            // Generate PNG
-            let redirect_url = std::env::var("REDIRECT_BASE_URL")
-                .unwrap_or_else(|_| "http://localhost:3001/r".to_string());
+    let scan_url = format!("{}/{}", state.config.redirect_base_url.trim_end_matches('/'), qr.code);
+    let png = QrImageGenerator::generate_png(&scan_url)?;
 
-            match QrImageGenerator::generate_png(&qr_id.to_string(), &redirect_url) {
-                Ok(png_data) => Ok(HttpResponse::Ok()
-                    .content_type("image/png")
-                    .body(png_data)),
-                Err(e) => {
-                    log::error!("Failed to generate QR image: {}", e);
-                    Ok(HttpResponse::InternalServerError().finish())
-                }
-            }
-        }
-        Ok(None) => Ok(HttpResponse::NotFound().finish()),
-        Err(e) => {
-            log::error!("Failed to fetch target URL: {}", e);
-            Ok(HttpResponse::InternalServerError().finish())
-        }
-    }
+    Ok(([(header::CONTENT_TYPE, "image/png")], png).into_response())
 }
 
-#[get("/{id}/scans")]
+#[utoipa::path(
+    get,
+    path = "/api/v1/qr/{id}/scans",
+    tag = "Analytics",
+    params(("id" = Uuid, Path, description = "QR code id")),
+    responses(
+        (status = 200, description = "Scan statistics", body = ScanStatsResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Not found")
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn get_scan_logs(
-    user: AuthenticatedUser,
-    pool: web::Data<PgPool>,
-    path: web::Path<Uuid>,
-) -> Result<HttpResponse> {
-    let qr_id = path.into_inner();
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(qr_id): Path<Uuid>,
+) -> AppResult<Json<ScanStatsResponse>> {
+    let qr = QrRepository::get_qr_by_id(&state.pool, qr_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    // Verify ownership
-    match qr_db::QrRepository::get_qr_by_id(&pool, qr_id).await {
-        Ok(Some(qr)) if qr.user_id == user.0.id => {}
-        Ok(Some(_)) => return Ok(HttpResponse::Forbidden().finish()),
-        Ok(None) => return Ok(HttpResponse::NotFound().finish()),
-        Err(e) => {
-            log::error!("Failed to verify QR ownership: {}", e);
-            return Ok(HttpResponse::InternalServerError().finish());
-        }
+    if qr.user_id != user.id {
+        return Err(AppError::Forbidden);
     }
 
-    match ScanLogger::get_scan_stats(&pool, qr_id).await {
-        Ok(stats) => {
-            let logs = qr_db::QrRepository::get_scan_logs(&pool, qr_id, 100)
-                .await
-                .unwrap_or_default();
+    let stats = ScanLogger::get_scan_stats(&state.pool, qr_id).await?;
+    let logs = QrRepository::get_scan_logs(&state.pool, qr_id, 100).await?;
 
-            let response = serde_json::json!({
-                "total_scans": stats.total_scans,
-                "device_breakdown": stats.device_breakdown,
-                "browser_breakdown": stats.browser_breakdown,
-                "recent_logs": logs.iter().map(|log| ScanLogResponse {
-                    ip: log.ip.clone(),
-                    browser: log.browser.clone(),
-                    device_type: log.device_type.clone(),
-                    timestamp: log.timestamp,
-                }).collect::<Vec<_>>()
-            });
-            Ok(HttpResponse::Ok().json(response))
-        }
-        Err(e) => {
-            log::error!("Failed to get scan stats: {}", e);
-            Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e})))
-        }
-    }
+    Ok(Json(ScanStatsResponse {
+        total_scans: stats.total_scans,
+        device_breakdown: stats.device_breakdown,
+        browser_breakdown: stats.browser_breakdown,
+        recent_logs: logs
+            .into_iter()
+            .map(|l| ScanLogResponse {
+                ip: l.ip,
+                browser: l.browser,
+                device_type: l.device_type,
+                timestamp: l.timestamp,
+            })
+            .collect(),
+    }))
 }
 
-#[delete("/{id}")]
+#[utoipa::path(
+    delete,
+    path = "/api/v1/qr/{id}",
+    tag = "QR",
+    params(("id" = Uuid, Path, description = "QR code id")),
+    responses(
+        (status = 204, description = "Deleted"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Not found")
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn delete_qr(
-    user: AuthenticatedUser,
-    pool: web::Data<PgPool>,
-    path: web::Path<Uuid>,
-) -> Result<HttpResponse> {
-    let qr_id = path.into_inner();
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(qr_id): Path<Uuid>,
+) -> AppResult<StatusCode> {
+    let qr = QrRepository::get_qr_by_id(&state.pool, qr_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
-    // Verify ownership
-    match qr_db::QrRepository::get_qr_by_id(&pool, qr_id).await {
-        Ok(Some(qr)) if qr.user_id == user.0.id => {}
-        Ok(Some(_)) => return Ok(HttpResponse::Forbidden().finish()),
-        Ok(None) => return Ok(HttpResponse::NotFound().finish()),
-        Err(e) => {
-            log::error!("Failed to verify QR ownership: {}", e);
-            return Ok(HttpResponse::InternalServerError().finish());
-        }
+    if qr.user_id != user.id {
+        return Err(AppError::Forbidden);
     }
 
-    match QrManager::delete_qr(&pool, qr_id).await {
-        Ok(true) => Ok(HttpResponse::NoContent().finish()),
-        Ok(false) => Ok(HttpResponse::NotFound().finish()),
-        Err(e) => {
-            log::error!("Failed to delete QR: {}", e);
-            Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e})))
-        }
+    let deleted = QrManager::delete_qr(&state.pool, qr_id).await?;
+    if !deleted {
+        return Err(AppError::NotFound);
     }
+
+    Ok(StatusCode::NO_CONTENT)
 }

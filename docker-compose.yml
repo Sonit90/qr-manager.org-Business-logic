@@ -1,12 +1,18 @@
 version: '3.8'
 
+# Shared Postgres for both auth (rust-generic-user-backend) and qr-api.
+# Each service migrates its own schema:
+#   - auth schema: owned by auth service
+#   - qr schema: owned by qr-api
+# Both services must point DATABASE_URL to the same Postgres instance + db.
+
 services:
   postgres:
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: qr_link
+      POSTGRES_DB: shared
     ports:
       - "5440:5432"
     volumes:

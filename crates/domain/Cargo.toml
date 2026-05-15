@@ -3,17 +3,18 @@ name = "qr-domain"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
-chrono.workspace = true
+time.workspace = true
 qrcode.workspace = true
-user-agent.workspace = true
 image.workspace = true
-log.workspace = true
+tracing.workspace = true
 sqlx.workspace = true
-rand = "0.8"
+rand.workspace = true
+thiserror.workspace = true
 
 qr-db = { path = "../db" }

@@ -3,8 +3,11 @@ name = "qr-shared"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 serde.workspace = true
 uuid.workspace = true
-chrono.workspace = true
+time.workspace = true
+thiserror.workspace = true
+generic-auth-core.workspace = true

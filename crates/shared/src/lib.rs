@@ -1,2 +1,8 @@
-// Shared types will be added as needed
-// Auth types are imported from generic-auth crate
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthUser {
+    pub id: Uuid,
+    pub role: String,
+}

@@ -3,11 +3,14 @@ name = "qr-db"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+publish = false
 
 [dependencies]
 sqlx.workspace = true
 tokio.workspace = true
 serde.workspace = true
 uuid.workspace = true
-chrono.workspace = true
-log.workspace = true
+time.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+utoipa.workspace = true

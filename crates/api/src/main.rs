@@ -1,48 +1,67 @@
-use actix_web::{web, App, HttpServer, middleware::Logger};
-use dotenv::dotenv;
-use std::env;
+use anyhow::{Context, Result};
+use axum::Router;
 use sqlx::postgres::PgPoolOptions;
-use qr_api::middleware::AuthMiddleware;
+use std::net::SocketAddr;
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    dotenv().ok();
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
+use qr_api::{config::AppConfig, openapi::ApiDoc, routes::build_router, state::AppState};
 
-    let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
+#[tokio::main]
+async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
+
+    let config = AppConfig::from_env()?;
+
+    init_tracing(&config);
+
+    tracing::info!(env = %config.app_env, "Starting qr-api");
 
     let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
+        .max_connections(10)
+        .connect(&config.database_url)
         .await
-        .expect("Failed to create pool");
+        .context("Failed to connect to database")?;
 
-    let host = env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = env::var("SERVER_PORT").unwrap_or_else(|_| "3001".to_string());
-    let bind_addr = format!("{}:{}", host, port);
-
-    log::info!("Starting server on {}", bind_addr);
-
-    let pool_data = web::Data::new(pool);
-
-    HttpServer::new(move || {
-        let mut cfg = web::ServiceConfig::default();
-        qr_api::routes::configure_public(&mut cfg);
-
-        App::new()
-            .wrap(Logger::default())
-            .app_data(pool_data.clone())
-            // Public routes (no auth)
-            .configure(qr_api::routes::configure_public)
-            // Protected routes (require auth)
-            .service(
-                web::scope("/api/v1")
-                    .wrap(AuthMiddleware)
-                    .configure(qr_api::routes::configure)
-            )
-    })
-        .bind(&bind_addr)?
-        .run()
+    sqlx::migrate!("../../migrations")
+        .run(&pool)
         .await
+        .context("Failed to run migrations")?;
+
+    let state = AppState::new(pool, config.clone());
+
+    let app: Router = build_router(state.clone())
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(TraceLayer::new_for_http());
+
+    let addr: SocketAddr = format!("{}:{}", config.server_host, config.server_port)
+        .parse()
+        .context("Invalid server address")?;
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    tracing::info!(%addr, "Listening");
+
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
+
+    Ok(())
+}
+
+fn init_tracing(config: &AppConfig) {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,qr_api=debug,sqlx=warn"));
+
+    let registry = tracing_subscriber::registry().with(filter);
+
+    if config.is_development() {
+        registry.with(fmt::layer().pretty()).init();
+    } else {
+        registry.with(fmt::layer().json()).init();
+    }
 }

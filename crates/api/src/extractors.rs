@@ -1,7 +1,11 @@
-use actix_web::{FromRequest, HttpRequest};
-use futures::future::{ok, Ready};
+use axum::{
+    extract::FromRequestParts,
+    http::request::Parts,
+};
 use generic_auth_auth::Claims;
 use uuid::Uuid;
+
+use crate::error::AppError;
 
 #[derive(Debug, Clone)]
 pub struct AuthUser {
@@ -9,28 +13,26 @@ pub struct AuthUser {
     pub role: String,
 }
 
-impl From<Claims> for AuthUser {
-    fn from(claims: Claims) -> Self {
+impl From<&Claims> for AuthUser {
+    fn from(claims: &Claims) -> Self {
         AuthUser {
             id: claims.sub,
-            role: claims.role,
+            role: claims.role.clone(),
         }
     }
 }
 
-pub struct AuthenticatedUser(pub AuthUser);
+impl<S> FromRequestParts<S> for AuthUser
+where
+    S: Send + Sync,
+{
+    type Rejection = AppError;
 
-impl FromRequest for AuthenticatedUser {
-    type Error = actix_web::error::Error;
-    type Future = Ready<Result<Self, Self::Error>>;
-
-    fn from_request(req: &HttpRequest) -> Self::Future {
-        if let Some(claims) = req.extensions().get::<Claims>() {
-            let user = AuthUser::from(claims.clone());
-            ok(AuthenticatedUser(user))
-        } else {
-            Err(actix_web::error::ErrorUnauthorized("Missing or invalid token"))
-                .into()
-        }
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        parts
+            .extensions
+            .get::<Claims>()
+            .map(AuthUser::from)
+            .ok_or(AppError::Unauthorized)
     }
 }

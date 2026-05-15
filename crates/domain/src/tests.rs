@@ -41,7 +41,7 @@ mod tests {
     #[test]
     fn test_parse_user_agent_tablet() {
         let ua = "Mozilla/5.0 (iPad; CPU OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Mobile/15E148 Safari/604.1";
-        let (browser, device) = ScanLogger::parse_user_agent(ua);
+        let (_browser, device) = ScanLogger::parse_user_agent(ua);
 
         assert_eq!(device, Some("Tablet".to_string()));
     }

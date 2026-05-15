@@ -5,26 +5,71 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.78"
 authors = ["QR Link Team"]
+publish = false
 
 [workspace.dependencies]
-actix-web = "4"
-actix-rt = "2"
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "macros", "chrono", "uuid"] }
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-uuid = { version = "1.0", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-qrcode = "0.12"
-user-agent = "0.1"
-image = "0.24"
-dotenv = "0.15"
-log = "0.4"
-env_logger = "0.10"
+# Async runtime
+tokio = { version = "1.39", features = ["full"] }
+async-trait = "0.1"
+
+# HTTP stack (Axum)
+axum = { version = "0.8", features = ["macros", "multipart"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "limit", "compression-gzip", "request-id"] }
+hyper = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Errors & logging
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Database
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "time",
+    "json",
+    "macros",
+    "migrate",
+] }
+
+# IDs & time
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
+
+# Auth/crypto
 jsonwebtoken = "9"
-thiserror = "1.0"
-futures = "0.3"
+rand = "0.8"
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "uuid", "time"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+
+# QR generation
+qrcode = "0.14"
+image = "0.25"
+
+# Config
+dotenvy = "0.15"
+config = { version = "0.14", default-features = false, features = ["toml"] }
+
+# generic-auth git deps
 generic-auth-auth = { git = "https://github.com/Sonit90/rust-generic-user-backend.git", branch = "main" }
 generic-auth-core = { git = "https://github.com/Sonit90/rust-generic-user-backend.git", branch = "main" }
 generic-auth-db = { git = "https://github.com/Sonit90/rust-generic-user-backend.git", branch = "main" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
