@@ -136,5 +136,5 @@ Per `CLAUDE.md`:
 cargo check                 # type-check
 cargo build --bin qr-api    # build binary
 cargo test                  # run unit tests
-cargo run --bin qr-api      # start server
+cargo run -p qr-api         # start server
 ```
