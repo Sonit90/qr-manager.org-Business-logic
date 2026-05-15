@@ -13,17 +13,31 @@ pub async fn require_auth(
     mut req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let token = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "))
-        .ok_or(AppError::Unauthorized)?;
+    let auth_header = req.headers().get(header::AUTHORIZATION);
 
-    let claims: Claims = state
-        .jwt_codec
-        .verify(token)
-        .map_err(|_| AppError::Unauthorized)?;
+    let raw = match auth_header.and_then(|h| h.to_str().ok()) {
+        Some(v) => v,
+        None => {
+            tracing::warn!("auth: missing or non-ASCII Authorization header");
+            return Err(AppError::Unauthorized);
+        }
+    };
+
+    let token = match raw.strip_prefix("Bearer ") {
+        Some(t) => t,
+        None => {
+            tracing::warn!(prefix = %&raw[..raw.len().min(16)], "auth: Authorization header missing 'Bearer ' prefix");
+            return Err(AppError::Unauthorized);
+        }
+    };
+
+    let claims: Claims = match state.jwt_codec.verify(token) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = ?e, "auth: JWT verify failed (check JWT_SECRET / JWT_ISSUER match auth service)");
+            return Err(AppError::Unauthorized);
+        }
+    };
 
     req.extensions_mut().insert(claims);
 
