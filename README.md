@@ -79,6 +79,7 @@ Hit `http://localhost:3001/swagger-ui` for interactive API docs.
 
 | Method | Path              | Auth | Description                                              |
 |--------|-------------------|------|----------------------------------------------------------|
+| GET    | `/api/health`     | —    | Liveness check, returns `ok`                             |
 | GET    | `/r/{qr_code}`    | —    | Log scan, redirect to target (or disabled-frontend URL)  |
 
 ### OpenAPI

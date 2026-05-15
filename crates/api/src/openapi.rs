@@ -4,7 +4,7 @@ use utoipa::{
     Modify, OpenApi,
 };
 
-use crate::routes::{qr, redirect};
+use crate::routes::{health, qr, redirect};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -14,6 +14,7 @@ use crate::routes::{qr, redirect};
         version = "0.1.0"
     ),
     paths(
+        health::health,
         qr::create_qr,
         qr::list_user_qrs,
         qr::get_qr,
@@ -38,7 +39,8 @@ use crate::routes::{qr, redirect};
     tags(
         (name = "QR", description = "QR code management"),
         (name = "Analytics", description = "Scan statistics"),
-        (name = "Public", description = "Public scan endpoint")
+        (name = "Public", description = "Public scan endpoint"),
+        (name = "Health", description = "Service health check")
     )
 )]
 pub struct ApiDoc;
