@@ -254,13 +254,11 @@ pub async fn get_scan_logs(
     }
 
     let stats = ScanLogger::get_scan_stats(&state.pool, qr_id).await?;
-    let logs = QrRepository::get_scan_logs(&state.pool, qr_id, 100).await?;
 
-    Ok(Json(ScanStatsResponse {
-        total_scans: stats.total_scans,
-        device_breakdown: stats.device_breakdown,
-        browser_breakdown: stats.browser_breakdown,
-        recent_logs: logs
+    // Detailed scan logs (IP, UA, etc.) only exposed to privileged roles.
+    let recent_logs = if matches!(user.role.as_str(), "admin" | "moderator") {
+        QrRepository::get_scan_logs(&state.pool, qr_id, 100)
+            .await?
             .into_iter()
             .map(|l| ScanLogResponse {
                 ip: l.ip,
@@ -268,7 +266,16 @@ pub async fn get_scan_logs(
                 device_type: l.device_type,
                 timestamp: l.timestamp,
             })
-            .collect(),
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(Json(ScanStatsResponse {
+        total_scans: stats.total_scans,
+        device_breakdown: stats.device_breakdown,
+        browser_breakdown: stats.browser_breakdown,
+        recent_logs,
     }))
 }
 
