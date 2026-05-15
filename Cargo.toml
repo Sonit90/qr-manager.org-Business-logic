@@ -10,7 +10,7 @@ authors = ["QR Link Team"]
 [workspace.dependencies]
 actix-web = "4"
 actix-rt = "2"
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "macros", "chrono", "uuid"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -22,3 +22,9 @@ image = "0.24"
 dotenv = "0.15"
 log = "0.4"
 env_logger = "0.10"
+jsonwebtoken = "9"
+thiserror = "1.0"
+futures = "0.3"
+generic-auth-auth = { git = "https://github.com/Sonit90/rust-generic-user-backend.git", branch = "main" }
+generic-auth-core = { git = "https://github.com/Sonit90/rust-generic-user-backend.git", branch = "main" }
+generic-auth-db = { git = "https://github.com/Sonit90/rust-generic-user-backend.git", branch = "main" }
