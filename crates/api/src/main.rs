@@ -19,11 +19,27 @@ async fn main() -> Result<()> {
 
     tracing::info!(env = %config.app_env, "Starting qr-api");
 
+    // Pool sets search_path=qr,public on every connection so our _sqlx_migrations
+    // table lives inside the qr schema — isolated from auth service's migrations
+    // tracking table in the same DB.
     let pool = PgPoolOptions::new()
         .max_connections(10)
+        .after_connect(|conn, _| {
+            Box::pin(async move {
+                sqlx::query("SET search_path TO qr, public")
+                    .execute(&mut *conn)
+                    .await?;
+                Ok(())
+            })
+        })
         .connect(&config.database_url)
         .await
         .context("Failed to connect to database")?;
+
+    sqlx::query("CREATE SCHEMA IF NOT EXISTS qr")
+        .execute(&pool)
+        .await
+        .context("Failed to ensure qr schema")?;
 
     sqlx::migrate!("../../migrations")
         .run(&pool)

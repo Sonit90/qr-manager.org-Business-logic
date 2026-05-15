@@ -22,41 +22,35 @@ crates/
 └── db/       SQLx models + repositories
 ```
 
-**Database isolation**: shared Postgres instance, separate schemas.
+**Database isolation**: shared Postgres instance (owned by auth service), separate schemas.
 
-- `auth.*` — owned by rust-generic-user-backend service
-- `qr.*`   — owned by this service
+- `auth.*` — owned by rust-generic-user-backend service (Postgres at `localhost:5434`)
+- `qr.*`   — owned by this service (in the same DB)
 
 FK: `qr.qr_codes.user_id REFERENCES auth.users(id) ON DELETE CASCADE`. Deleting a user cascades to their QR codes (no orphans).
 
 ## Setup
 
-### 1. Start shared Postgres
+### 1. Start auth service
 
-```sh
-docker-compose up -d
-```
+qr-api depends on the auth service's Postgres. Start [rust-generic-user-backend](https://github.com/Sonit90/rust-generic-user-backend) first — it brings up Postgres on `localhost:5434` and creates the `auth.*` schema.
 
-Postgres listens on host port `5440`, database `shared`.
-
-### 2. Run auth service migrations FIRST
-
-The `qr.qr_codes` table has an FK to `auth.users`. Run [rust-generic-user-backend](https://github.com/Sonit90/rust-generic-user-backend) migrations against the same DB before starting qr-api.
-
-### 3. Configure env
+### 2. Configure env
 
 ```sh
 cp .env.example .env
-# Edit .env — set APP__AUTH__JWT_SECRET to match auth service
+# Edit .env:
+#   - DATABASE_URL: match auth service's Postgres credentials
+#   - APP__AUTH__JWT_SECRET: copy from auth service's config (must match exactly)
 ```
 
-### 4. Run
+### 3. Run
 
 ```sh
-cargo run --bin qr-api
+cargo run -p qr-api
 ```
 
-Migrations run automatically on startup. Server listens on `SERVER_PORT` (default `3001`).
+qr-api migrations run automatically on startup, creating `qr.*` schema in auth's DB. Server listens on `SERVER_PORT` (default `3001`).
 
 Hit `http://localhost:3001/swagger-ui` for interactive API docs.
 
