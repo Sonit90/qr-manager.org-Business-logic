@@ -60,7 +60,7 @@ impl ScanLogger {
         })
     }
 
-    fn parse_user_agent(ua_string: &str) -> (Option<String>, Option<String>) {
+    pub fn parse_user_agent(ua_string: &str) -> (Option<String>, Option<String>) {
         let ua = UserAgent::parse(ua_string);
 
         let browser = Self::extract_browser(&ua, ua_string);

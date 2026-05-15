@@ -1,0 +1,404 @@
+openapi: 3.0.0
+info:
+  title: QR Link API
+  description: Dynamic QR code management API
+  version: 0.1.0
+  contact:
+    email: support@qr-link.local
+
+servers:
+  - url: http://localhost:3001
+    description: Local development
+  - url: https://api.qr-link.local
+    description: Production
+
+paths:
+  /api/v1/qr:
+    post:
+      summary: Create QR code
+      operationId: createQr
+      tags:
+        - QR Management
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQrRequest'
+      responses:
+        '201':
+          description: QR code created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrCodeResponse'
+        '400':
+          description: Invalid request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+
+    get:
+      summary: List user's QR codes
+      operationId: listUserQrs
+      tags:
+        - QR Management
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of QR codes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QrCodeResponse'
+        '401':
+          description: Unauthorized
+        '500':
+          description: Server error
+
+  /api/v1/qr/{id}:
+    get:
+      summary: Get QR code details
+      operationId: getQr
+      tags:
+        - QR Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: QR code details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrCodeResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: QR code not found
+        '500':
+          description: Server error
+
+    delete:
+      summary: Delete QR code
+      operationId: deleteQr
+      tags:
+        - QR Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: QR code deleted
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: QR code not found
+        '500':
+          description: Server error
+
+  /api/v1/qr/{id}/target:
+    put:
+      summary: Update target URL
+      operationId: updateTargetUrl
+      tags:
+        - QR Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTargetUrlRequest'
+      responses:
+        '200':
+          description: Target URL updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  url:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: QR code not found
+        '500':
+          description: Server error
+
+  /api/v1/qr/{id}/enabled:
+    patch:
+      summary: Toggle QR code enabled/disabled
+      operationId: toggleQrEnabled
+      tags:
+        - QR Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        '200':
+          description: QR code status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  enabled:
+                    type: boolean
+                  updated_at:
+                    type: string
+                    format: date-time
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: QR code not found
+        '500':
+          description: Server error
+
+  /api/v1/qr/{id}/image:
+    get:
+      summary: Get QR code as PNG image
+      operationId: getQrImage
+      tags:
+        - QR Management
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: QR code PNG image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: QR code not found
+        '500':
+          description: Server error
+
+  /api/v1/qr/{id}/scans:
+    get:
+      summary: Get scan statistics and logs
+      operationId: getScanLogs
+      tags:
+        - Analytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Scan statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_scans:
+                    type: integer
+                  device_breakdown:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  browser_breakdown:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  recent_logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScanLogResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: QR code not found
+        '500':
+          description: Server error
+
+  /r/{qr_code}:
+    get:
+      summary: Redirect from QR code
+      operationId: redirectQr
+      tags:
+        - Public
+      parameters:
+        - name: qr_code
+          in: path
+          required: true
+          schema:
+            type: string
+            description: QR code identifier
+      responses:
+        '302':
+          description: Redirect to target URL or disabled page
+          headers:
+            Location:
+              schema:
+                type: string
+        '404':
+          description: QR code not found
+        '500':
+          description: Server error
+
+components:
+  schemas:
+    CreateQrRequest:
+      type: object
+      properties:
+        target_url:
+          type: string
+          format: uri
+          description: Initial target URL for the QR code
+      required:
+        - target_url
+
+    UpdateTargetUrlRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: New target URL
+      required:
+        - url
+
+    QrCodeResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: Unique QR code identifier
+        target_url:
+          type: string
+          format: uri
+          description: Current target URL
+        enabled:
+          type: boolean
+          description: Whether the QR code is active
+        scan_count:
+          type: integer
+          description: Number of scans
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - code
+        - target_url
+        - enabled
+        - scan_count
+        - created_at
+        - updated_at
+
+    ScanLogResponse:
+      type: object
+      properties:
+        ip:
+          type: string
+          nullable: true
+          description: Client IP address
+        browser:
+          type: string
+          nullable: true
+          description: Detected browser (Chrome, Firefox, Safari, Edge, Opera)
+        device_type:
+          type: string
+          nullable: true
+          description: Device type (Mobile, Tablet, Desktop)
+        timestamp:
+          type: string
+          format: date-time
+      required:
+        - timestamp
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from authentication service

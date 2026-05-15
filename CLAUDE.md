@@ -35,3 +35,4 @@ You must follow a strict two-phase workflow for every non-trivial task.
 - If you violate this, stop and restart from planning.
 - When implementing API, always write Open API specifications
 - Ensure Open API specs are accurate and up-to-date with implementation
+- Use utoipa and utoipa-swagger-ui crates to generate Open API specs
