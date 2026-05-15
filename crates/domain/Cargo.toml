@@ -1,0 +1,17 @@
+[package]
+name = "qr-domain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+qrcode.workspace = true
+user-agent.workspace = true
+image.workspace = true
+log.workspace = true
+
+qr-db = { path = "../db" }
