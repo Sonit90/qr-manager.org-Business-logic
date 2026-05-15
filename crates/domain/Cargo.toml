@@ -13,5 +13,7 @@ qrcode.workspace = true
 user-agent.workspace = true
 image.workspace = true
 log.workspace = true
+sqlx.workspace = true
+rand = "0.8"
 
 qr-db = { path = "../db" }
