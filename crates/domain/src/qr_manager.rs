@@ -10,11 +10,30 @@ impl QrManager {
     pub async fn create_qr(
         pool: &PgPool,
         user_id: Uuid,
+        name: Option<String>,
         target_url: String,
     ) -> DomainResult<(QrCode, TargetUrl)> {
         let code = Uuid::new_v4().to_string();
-        let result = QrRepository::create_qr(pool, user_id, code, target_url).await?;
+        let result = QrRepository::create_qr(pool, user_id, code, name, target_url).await?;
         Ok(result)
+    }
+
+    pub async fn set_image_url(
+        pool: &PgPool,
+        qr_id: Uuid,
+        image_url: String,
+    ) -> DomainResult<QrCode> {
+        let qr = QrRepository::set_image_url(pool, qr_id, image_url).await?;
+        Ok(qr)
+    }
+
+    pub async fn update_name(
+        pool: &PgPool,
+        qr_id: Uuid,
+        name: String,
+    ) -> DomainResult<QrCode> {
+        let qr = QrRepository::update_name(pool, qr_id, name).await?;
+        Ok(qr)
     }
 
     pub async fn get_qr_with_target(
@@ -46,6 +65,8 @@ impl QrManager {
             .map(|row| QrCodeResponse {
                 id: row.id,
                 code: row.code,
+                name: row.name,
+                image_url: row.image_url,
                 target_url: row.target_url.unwrap_or_default(),
                 enabled: row.enabled,
                 scan_count: row.scan_count.unwrap_or(0),
@@ -86,5 +107,4 @@ impl QrManager {
         let result = QrRepository::get_qr_by_code(pool, code).await?;
         Ok(result)
     }
-
 }

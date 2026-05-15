@@ -17,8 +17,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/qr/{id}", get(qr::get_qr))
         .route("/qr/{id}", delete(qr::delete_qr))
         .route("/qr/{id}/target", put(qr::update_target_url))
+        .route("/qr/{id}/name", patch(qr::update_name))
         .route("/qr/{id}/enabled", patch(qr::toggle_qr_enabled))
-        .route("/qr/{id}/image", get(qr::get_qr_image))
         .route("/qr/{id}/scans", get(qr::get_scan_logs))
         .route_layer(axum_mw::from_fn_with_state(state.clone(), require_auth));
 

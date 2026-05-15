@@ -1,13 +1,15 @@
+use aws_sdk_s3::Client as S3Client;
 use generic_auth_auth::{JwtCodec, JwtConfig};
 use sqlx::PgPool;
 use std::sync::Arc;
 
-use crate::config::AppConfig;
+use crate::{config::AppConfig, storage};
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
     pub jwt_codec: Arc<JwtCodec>,
+    pub s3: Arc<S3Client>,
     pub config: Arc<AppConfig>,
 }
 
@@ -21,9 +23,12 @@ impl AppState {
         };
         let jwt_codec = Arc::new(JwtCodec::new(jwt_config));
 
+        let s3 = Arc::new(storage::build_client(&config.storage));
+
         Self {
             pool,
             jwt_codec,
+            s3,
             config: Arc::new(config),
         }
     }

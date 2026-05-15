@@ -1,7 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    http::StatusCode,
     Json,
 };
 use qr_db::{models::*, QrRepository};
@@ -12,6 +11,7 @@ use crate::{
     error::{AppError, AppResult},
     extractors::AuthUser,
     state::AppState,
+    storage,
 };
 
 #[utoipa::path(
@@ -30,11 +30,17 @@ pub async fn create_qr(
     State(state): State<AppState>,
     Json(req): Json<CreateQrRequest>,
 ) -> AppResult<(StatusCode, Json<QrCodeResponse>)> {
-    let (qr, target_url) = QrManager::create_qr(&state.pool, user.id, req.target_url).await?;
+    let (qr, target_url) =
+        QrManager::create_qr(&state.pool, user.id, req.name, req.target_url).await?;
+
+    let image_url = upload_qr_image(&state, &qr).await?;
+    let qr = QrManager::set_image_url(&state.pool, qr.id, image_url).await?;
 
     let response = QrCodeResponse {
         id: qr.id,
         code: qr.code,
+        name: qr.name,
+        image_url: qr.image_url,
         target_url: target_url.url,
         enabled: qr.enabled,
         scan_count: 0,
@@ -81,7 +87,7 @@ pub async fn get_qr(
     State(state): State<AppState>,
     Path(qr_id): Path<Uuid>,
 ) -> AppResult<Json<QrCodeResponse>> {
-    let (qr, target_url) = QrManager::get_qr_with_target(&state.pool, qr_id)
+    let (mut qr, target_url) = QrManager::get_qr_with_target(&state.pool, qr_id)
         .await?
         .ok_or(AppError::NotFound)?;
 
@@ -89,11 +95,19 @@ pub async fn get_qr(
         return Err(AppError::Forbidden);
     }
 
+    // Lazy backfill — regenerate + upload PNG if image_url missing
+    if qr.image_url.is_none() {
+        let image_url = upload_qr_image(&state, &qr).await?;
+        qr = QrManager::set_image_url(&state.pool, qr.id, image_url).await?;
+    }
+
     let scan_count = QrRepository::get_scan_count(&state.pool, qr_id).await?;
 
     Ok(Json(QrCodeResponse {
         id: qr.id,
         code: qr.code,
+        name: qr.name,
+        image_url: qr.image_url,
         target_url,
         enabled: qr.enabled,
         scan_count,
@@ -141,6 +155,43 @@ pub async fn update_target_url(
 
 #[utoipa::path(
     patch,
+    path = "/api/v1/qr/{id}/name",
+    tag = "QR",
+    params(("id" = Uuid, Path, description = "QR code id")),
+    request_body = UpdateNameRequest,
+    responses(
+        (status = 200, description = "Name updated", body = UpdateNameResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Not found")
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn update_name(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(qr_id): Path<Uuid>,
+    Json(req): Json<UpdateNameRequest>,
+) -> AppResult<Json<UpdateNameResponse>> {
+    let qr = QrRepository::get_qr_by_id(&state.pool, qr_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+    if qr.user_id != user.id {
+        return Err(AppError::Forbidden);
+    }
+
+    let updated = QrManager::update_name(&state.pool, qr_id, req.name).await?;
+
+    Ok(Json(UpdateNameResponse {
+        id: updated.id,
+        name: updated.name.unwrap_or_default(),
+        updated_at: updated.updated_at,
+    }))
+}
+
+#[utoipa::path(
+    patch,
     path = "/api/v1/qr/{id}/enabled",
     tag = "QR",
     params(("id" = Uuid, Path, description = "QR code id")),
@@ -174,38 +225,6 @@ pub async fn toggle_qr_enabled(
         enabled: updated.enabled,
         updated_at: updated.updated_at,
     }))
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/qr/{id}/image",
-    tag = "QR",
-    params(("id" = Uuid, Path, description = "QR code id")),
-    responses(
-        (status = 200, description = "PNG image", content_type = "image/png"),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden"),
-        (status = 404, description = "Not found")
-    ),
-    security(("BearerAuth" = []))
-)]
-pub async fn get_qr_image(
-    user: AuthUser,
-    State(state): State<AppState>,
-    Path(qr_id): Path<Uuid>,
-) -> AppResult<Response> {
-    let qr = QrRepository::get_qr_by_id(&state.pool, qr_id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-
-    if qr.user_id != user.id {
-        return Err(AppError::Forbidden);
-    }
-
-    let scan_url = format!("{}/{}", state.config.redirect_base_url.trim_end_matches('/'), qr.code);
-    let png = QrImageGenerator::generate_png(&scan_url)?;
-
-    Ok(([(header::CONTENT_TYPE, "image/png")], png).into_response())
 }
 
 #[utoipa::path(
@@ -285,4 +304,28 @@ pub async fn delete_qr(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn upload_qr_image(state: &AppState, qr: &QrCode) -> AppResult<String> {
+    let scan_url = format!(
+        "{}/{}",
+        state.config.redirect_base_url.trim_end_matches('/'),
+        qr.code
+    );
+    let png = QrImageGenerator::generate_png(&scan_url)?;
+    let key = storage::object_key(qr.id);
+
+    storage::upload_png(&state.s3, &state.config.storage.bucket, &key, png)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = ?e, qr_id = %qr.id, "Failed to upload QR PNG to storage");
+            AppError::Database(sqlx::Error::Configuration(
+                format!("storage upload failed: {}", e).into(),
+            ))
+        })?;
+
+    Ok(storage::public_url(
+        &state.config.storage.public_base_url,
+        &key,
+    ))
 }

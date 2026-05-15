@@ -1,11 +1,12 @@
 # QR Link
 
-Dynamic QR code backend. Users create QR codes pointing to a redirect URL; the destination can be changed at any time, so a printed QR keeps working even after the target moves. Scans are logged with browser/device/IP metadata.
+Dynamic QR code backend. Users create named QR codes pointing to a redirect URL; the destination can be changed at any time, so a printed QR keeps working even after the target moves. Scans are logged with browser/device/IP metadata. PNG images are generated on create and stored in RustFS.
 
 ## Tech stack
 
 - **Framework**: Axum 0.8 + Tower
 - **DB**: PostgreSQL 15, SQLx 0.8, `time` crate
+- **Object storage**: RustFS (S3-compatible) via `aws-sdk-s3`
 - **Auth**: JWT validation via [`rust-generic-user-backend`](https://github.com/Sonit90/rust-generic-user-backend) (`generic-auth-auth` crate, git dep)
 - **Logging**: `tracing` (pretty in dev, JSON in prod — toggled by `APP_ENV`)
 - **OpenAPI**: `utoipa` annotations → Swagger UI at `/swagger-ui`
@@ -17,7 +18,7 @@ Workspace with 3 crates:
 
 ```
 crates/
-├── api/      Axum HTTP server, routes, middleware, OpenAPI
+├── api/      Axum HTTP server, routes, middleware, storage client, OpenAPI
 ├── domain/   QR manager, scan logger, image generator
 └── db/       SQLx models + repositories
 ```
@@ -27,34 +28,47 @@ crates/
 - `auth.*` — owned by rust-generic-user-backend (Postgres at `localhost:5434`). Tables: `users`, `roles`, `refresh_tokens`, etc.
 - `qr.*`   — owned by this service (same DB, different schema)
 
-Each service tracks its migrations in its OWN `_sqlx_migrations` table — auth's in `auth._sqlx_migrations`, qr's in `qr._sqlx_migrations`. Per-connection `search_path` override gives each service its own isolated migration tracking.
+Each service tracks its migrations in its OWN `_sqlx_migrations` table — auth's in `auth._sqlx_migrations`, qr's in `qr._sqlx_migrations`. Per-connection `search_path` override gives each service isolated migration tracking.
 
 FK: `qr.qr_codes.user_id REFERENCES auth.users(id) ON DELETE CASCADE`. Deleting a user cascades to their QR codes (no orphans).
+
+**Object storage**: PNG images live in RustFS bucket `qr-images`, keyed `{qr_id}.png`. Bucket is publicly readable; URLs returned in API responses are direct.
 
 ## Setup
 
 ### 1. Start auth service
 
-qr-api depends on the auth service's Postgres. Start [rust-generic-user-backend](https://github.com/Sonit90/rust-generic-user-backend) first — it brings up Postgres on `localhost:5434` and creates the `auth.*` schema.
+qr-api depends on auth's Postgres. Start [rust-generic-user-backend](https://github.com/Sonit90/rust-generic-user-backend) first — it brings up Postgres on `localhost:5434` and creates `auth.*` schema.
 
 ### 2. Configure env
 
 ```sh
 cp .env.example .env
 # Edit .env:
-#   - DATABASE_URL: match auth service's Postgres credentials
-#   - APP__AUTH__JWT_SECRET: copy from auth service's config (must match exactly)
+#   - APP__AUTH__JWT_SECRET → copy from auth service's config (must match exactly)
+#   - DATABASE_URL → match auth's Postgres credentials
 ```
 
-### 3. Run
+### 3. Run with Docker (recommended)
 
 ```sh
+docker compose up --build
+```
+
+Brings up: RustFS (S3), bucket-init, qr-api. qr-api connects to auth's Postgres via `host.docker.internal:5434`.
+
+### 4. Run natively (alternative)
+
+```sh
+# RustFS must be running separately (or via this compose)
+docker compose up -d rustfs rustfs-init
 cargo run -p qr-api
 ```
 
-qr-api migrations run automatically on startup, creating `qr.*` schema in auth's DB. Server listens on `SERVER_PORT` (default `3001`).
+qr-api migrations run automatically on startup, creating `qr.*` schema. Server listens on `SERVER_PORT` (default `3001`).
 
-Hit `http://localhost:3001/swagger-ui` for interactive API docs.
+Open `http://localhost:3001/swagger-ui` for interactive API docs.
+Open `http://localhost:9001` for RustFS console (login `rustfsadmin` / `rustfsadmin`).
 
 ## API endpoints (v1)
 
@@ -62,12 +76,12 @@ Hit `http://localhost:3001/swagger-ui` for interactive API docs.
 
 | Method | Path                          | Auth   | Description                              |
 |--------|-------------------------------|--------|------------------------------------------|
-| POST   | `/api/v1/qr`                  | Bearer | Create QR + initial target URL           |
+| POST   | `/api/v1/qr`                  | Bearer | Create QR + initial target URL + name; PNG uploaded to RustFS |
 | GET    | `/api/v1/qr`                  | Bearer | List authenticated user's QRs            |
-| GET    | `/api/v1/qr/{id}`             | Bearer | Get QR details + scan count              |
+| GET    | `/api/v1/qr/{id}`             | Bearer | Get QR details + scan count + image URL  |
 | DELETE | `/api/v1/qr/{id}`             | Bearer | Delete QR + cascade scans                |
 | PATCH  | `/api/v1/qr/{id}/enabled`     | Bearer | Toggle enabled/disabled                  |
-| GET    | `/api/v1/qr/{id}/image`       | Bearer | Render QR as PNG                         |
+| PATCH  | `/api/v1/qr/{id}/name`        | Bearer | Update QR name                           |
 | GET    | `/api/v1/qr/{id}/scans`       | Bearer | Scan stats + recent logs                 |
 | PUT    | `/api/v1/qr/{id}/target`      | Bearer | Update target URL (appends new version)  |
 
@@ -87,20 +101,26 @@ Hit `http://localhost:3001/swagger-ui` for interactive API docs.
 
 ## Configuration
 
-| Variable                              | Required | Default                                    | Notes                              |
-|---------------------------------------|----------|--------------------------------------------|------------------------------------|
-| `APP_ENV`                             | no       | `development`                              | `development` → pretty tracing     |
-| `RUST_LOG`                            | no       | `info,qr_api=debug,sqlx=warn`              |                                    |
-| `DATABASE_URL`                        | **yes**  | —                                          | Shared Postgres URL                |
-| `SERVER_HOST`                         | no       | `127.0.0.1`                                |                                    |
-| `SERVER_PORT`                         | no       | `3001`                                     |                                    |
-| `APP__AUTH__JWT_SECRET`               | **yes**  | —                                          | MUST match auth service            |
-| `APP__AUTH__JWT_ISSUER`               | no       | `generic-auth`                             | Must match `iss` claim issued      |
-| `APP__AUTH__JWT_ACCESS_TTL_MIN`       | no       | `30`                                       |                                    |
-| `APP__AUTH__JWT_REFRESH_TTL_DAYS`     | no       | `14`                                       |                                    |
-| `APP__CORS__ALLOWED_ORIGINS`          | prod     | empty                                      | Comma-separated; ignored in dev    |
-| `DISABLED_QR_FRONTEND_URL`            | no       | `http://localhost:3000/qr-disabled`        | Redirect target for disabled QRs   |
-| `REDIRECT_BASE_URL`                   | no       | `http://localhost:3001/r`                  | Embedded in PNG QR images          |
+| Variable                              | Required | Default                                    | Notes                                  |
+|---------------------------------------|----------|--------------------------------------------|----------------------------------------|
+| `APP_ENV`                             | no       | `development`                              | `development` → pretty tracing + permissive CORS |
+| `RUST_LOG`                            | no       | `info,qr_api=debug,sqlx=warn`              |                                        |
+| `DATABASE_URL`                        | **yes**  | —                                          | Shared Postgres URL                    |
+| `SERVER_HOST`                         | no       | `127.0.0.1`                                | Use `0.0.0.0` in Docker                |
+| `SERVER_PORT`                         | no       | `3001`                                     |                                        |
+| `APP__AUTH__JWT_SECRET`               | **yes**  | —                                          | MUST match auth service                |
+| `APP__AUTH__JWT_ISSUER`               | no       | `generic-auth`                             | Must match `iss` claim issued          |
+| `APP__AUTH__JWT_ACCESS_TTL_MIN`       | no       | `30`                                       |                                        |
+| `APP__AUTH__JWT_REFRESH_TTL_DAYS`     | no       | `14`                                       |                                        |
+| `APP__CORS__ALLOWED_ORIGINS`          | prod     | empty                                      | Comma-separated; ignored in dev        |
+| `APP__STORAGE__ENDPOINT_URL`          | **yes**  | —                                          | RustFS/S3 endpoint (e.g. `http://rustfs:9000`) |
+| `APP__STORAGE__BUCKET`                | no       | `qr-images`                                |                                        |
+| `APP__STORAGE__REGION`                | no       | `us-east-1`                                | S3-compatibility placeholder           |
+| `APP__STORAGE__ACCESS_KEY`            | **yes**  | —                                          |                                        |
+| `APP__STORAGE__SECRET_KEY`            | **yes**  | —                                          |                                        |
+| `APP__STORAGE__PUBLIC_BASE_URL`       | **yes**  | —                                          | Prefix used in `image_url` responses   |
+| `DISABLED_QR_FRONTEND_URL`            | no       | `http://localhost:3000/qr-disabled`        | Redirect target for disabled QRs       |
+| `REDIRECT_BASE_URL`                   | no       | `http://localhost:3001/r`                  | Embedded in PNG QR images              |
 
 ## Auth flow
 
@@ -110,7 +130,13 @@ Hit `http://localhost:3001/swagger-ui` for interactive API docs.
 4. `Claims` inserted into request extensions
 5. `AuthUser` extractor pulls `Claims.sub` (user UUID) for ownership checks
 
-JWT secret + issuer must match the auth service's config.
+JWT secret + issuer must match auth service's config.
+
+## QR image lifecycle
+
+- **On create** (`POST /api/v1/qr`): PNG generated (referring to `/r/{code}`), uploaded to RustFS at `{qr_id}.png`, public URL stored in `qr.qr_codes.image_url`.
+- **On read** (`GET /api/v1/qr/{id}`): if `image_url` is null (legacy row or upload failed), it's regenerated + uploaded lazily, then saved.
+- The QR's `code` (and thus scan URL) never changes — only `target_url` does. Stored PNG stays valid forever.
 
 ## Disabled QR behavior
 
@@ -133,5 +159,6 @@ Per `CLAUDE.md`:
 cargo check                 # type-check
 cargo build --bin qr-api    # build binary
 cargo test                  # run unit tests
-cargo run -p qr-api         # start server
+cargo run -p qr-api         # start server (requires running RustFS + Postgres)
+docker compose up --build   # full stack in containers
 ```

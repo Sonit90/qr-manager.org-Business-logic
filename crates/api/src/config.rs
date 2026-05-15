@@ -9,6 +9,7 @@ pub struct AppConfig {
     pub database_url: String,
     pub auth: AuthConfig,
     pub cors: CorsConfig,
+    pub storage: StorageConfig,
     pub disabled_qr_frontend_url: String,
     pub redirect_base_url: String,
 }
@@ -24,6 +25,16 @@ pub struct AuthConfig {
 #[derive(Debug, Clone, Default)]
 pub struct CorsConfig {
     pub allowed_origins: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StorageConfig {
+    pub endpoint_url: String,
+    pub bucket: String,
+    pub region: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub public_base_url: String,
 }
 
 impl AppConfig {
@@ -58,6 +69,20 @@ impl AppConfig {
                     .filter(|s| !s.is_empty())
                     .map(|s| s.to_string())
                     .collect(),
+            },
+            storage: StorageConfig {
+                endpoint_url: env::var("APP__STORAGE__ENDPOINT_URL")
+                    .context("APP__STORAGE__ENDPOINT_URL not set")?,
+                bucket: env::var("APP__STORAGE__BUCKET")
+                    .unwrap_or_else(|_| "qr-images".to_string()),
+                region: env::var("APP__STORAGE__REGION")
+                    .unwrap_or_else(|_| "us-east-1".to_string()),
+                access_key: env::var("APP__STORAGE__ACCESS_KEY")
+                    .context("APP__STORAGE__ACCESS_KEY not set")?,
+                secret_key: env::var("APP__STORAGE__SECRET_KEY")
+                    .context("APP__STORAGE__SECRET_KEY not set")?,
+                public_base_url: env::var("APP__STORAGE__PUBLIC_BASE_URL")
+                    .context("APP__STORAGE__PUBLIC_BASE_URL not set")?,
             },
             disabled_qr_frontend_url: env::var("DISABLED_QR_FRONTEND_URL")
                 .unwrap_or_else(|_| "http://localhost:3000/qr-disabled".to_string()),

@@ -10,15 +10,17 @@ impl QrRepository {
         pool: &PgPool,
         user_id: Uuid,
         code: String,
+        name: Option<String>,
         url: String,
     ) -> Result<(QrCode, TargetUrl), sqlx::Error> {
         let mut tx = pool.begin().await?;
 
         let qr = sqlx::query_as::<_, QrCode>(
-            "INSERT INTO qr.qr_codes (user_id, code) VALUES ($1, $2) RETURNING *",
+            "INSERT INTO qr.qr_codes (user_id, code, name) VALUES ($1, $2, $3) RETURNING *",
         )
         .bind(user_id)
         .bind(&code)
+        .bind(name)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -33,6 +35,34 @@ impl QrRepository {
         tx.commit().await?;
 
         Ok((qr, target_url))
+    }
+
+    pub async fn set_image_url(
+        pool: &PgPool,
+        qr_id: Uuid,
+        image_url: String,
+    ) -> Result<QrCode, sqlx::Error> {
+        sqlx::query_as::<_, QrCode>(
+            "UPDATE qr.qr_codes SET image_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+        )
+        .bind(image_url)
+        .bind(qr_id)
+        .fetch_one(pool)
+        .await
+    }
+
+    pub async fn update_name(
+        pool: &PgPool,
+        qr_id: Uuid,
+        name: String,
+    ) -> Result<QrCode, sqlx::Error> {
+        sqlx::query_as::<_, QrCode>(
+            "UPDATE qr.qr_codes SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+        )
+        .bind(name)
+        .bind(qr_id)
+        .fetch_one(pool)
+        .await
     }
 
     pub async fn get_qr_by_code(pool: &PgPool, code: &str) -> Result<Option<QrCode>, sqlx::Error> {
@@ -71,6 +101,8 @@ impl QrRepository {
                 q.id as id,
                 q.user_id as user_id,
                 q.code as code,
+                q.name as name,
+                q.image_url as image_url,
                 q.enabled as enabled,
                 q.created_at as created_at,
                 q.updated_at as updated_at,
@@ -199,6 +231,8 @@ pub struct QrWithTargetRow {
     pub id: Uuid,
     pub user_id: Uuid,
     pub code: String,
+    pub name: Option<String>,
+    pub image_url: Option<String>,
     pub enabled: bool,
     pub created_at: time::OffsetDateTime,
     pub updated_at: time::OffsetDateTime,

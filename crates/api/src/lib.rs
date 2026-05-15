@@ -5,6 +5,7 @@ pub mod middleware;
 pub mod openapi;
 pub mod routes;
 pub mod state;
+pub mod storage;
 
 pub use config::AppConfig;
 pub use error::{AppError, AppResult};

@@ -1,0 +1,78 @@
+# qr-api stack: RustFS (S3-compatible) + qr-api itself.
+# Postgres comes from the auth service (rust-generic-user-backend) — qr-api
+# reaches it via host network (host.docker.internal:5434 by default).
+
+services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: qr-rustfs
+    restart: unless-stopped
+    command: ["server", "/data", "--address", ":9000", "--console-address", ":9001"]
+    environment:
+      RUSTFS_ROOT_USER: rustfsadmin
+      RUSTFS_ROOT_PASSWORD: rustfsadmin
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rustfs-init:
+    image: minio/mc:latest
+    container_name: qr-rustfs-init
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://rustfs:9000 rustfsadmin rustfsadmin
+        mc mb --ignore-existing local/qr-images
+        mc anonymous set public local/qr-images
+        echo "Bucket qr-images ready (public)"
+
+  qr-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qr-api:local
+    container_name: qr-api
+    restart: unless-stopped
+    depends_on:
+      rustfs:
+        condition: service_healthy
+      rustfs-init:
+        condition: service_completed_successfully
+    ports:
+      - "3001:3001"
+    environment:
+      APP_ENV: development
+      RUST_LOG: info,qr_api=debug,sqlx=warn
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "3001"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://auth_user:auth_password@host.docker.internal:5434/auth_db}
+      APP__AUTH__JWT_SECRET: ${APP__AUTH__JWT_SECRET}
+      APP__AUTH__JWT_ISSUER: ${APP__AUTH__JWT_ISSUER:-generic-auth}
+      APP__AUTH__JWT_ACCESS_TTL_MIN: ${APP__AUTH__JWT_ACCESS_TTL_MIN:-30}
+      APP__AUTH__JWT_REFRESH_TTL_DAYS: ${APP__AUTH__JWT_REFRESH_TTL_DAYS:-14}
+      APP__CORS__ALLOWED_ORIGINS: ${APP__CORS__ALLOWED_ORIGINS:-}
+      APP__STORAGE__ENDPOINT_URL: http://rustfs:9000
+      APP__STORAGE__BUCKET: qr-images
+      APP__STORAGE__REGION: us-east-1
+      APP__STORAGE__ACCESS_KEY: rustfsadmin
+      APP__STORAGE__SECRET_KEY: rustfsadmin
+      APP__STORAGE__PUBLIC_BASE_URL: http://localhost:9000/qr-images
+      DISABLED_QR_FRONTEND_URL: ${DISABLED_QR_FRONTEND_URL:-http://localhost:3000/qr-disabled}
+      REDIRECT_BASE_URL: ${REDIRECT_BASE_URL:-http://localhost:3001/r}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  rustfs_data:

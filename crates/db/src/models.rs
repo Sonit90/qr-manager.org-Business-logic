@@ -9,6 +9,8 @@ pub struct QrCode {
     pub id: Uuid,
     pub user_id: Uuid,
     pub code: String,
+    pub name: Option<String>,
+    pub image_url: Option<String>,
     pub enabled: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
@@ -40,11 +42,17 @@ pub struct ScanLog {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateQrRequest {
     pub target_url: String,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UpdateTargetUrlRequest {
     pub url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateNameRequest {
+    pub name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -56,6 +64,8 @@ pub struct ToggleEnabledRequest {
 pub struct QrCodeResponse {
     pub id: Uuid,
     pub code: String,
+    pub name: Option<String>,
+    pub image_url: Option<String>,
     pub target_url: String,
     pub enabled: bool,
     pub scan_count: i64,
@@ -94,6 +104,14 @@ pub struct TargetUrlResponse {
 pub struct ToggleEnabledResponse {
     pub id: Uuid,
     pub enabled: bool,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateNameResponse {
+    pub id: Uuid,
+    pub name: String,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
