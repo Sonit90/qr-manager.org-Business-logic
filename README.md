@@ -36,39 +36,96 @@ FK: `qr.qr_codes.user_id REFERENCES auth.users(id) ON DELETE CASCADE`. Deleting 
 
 ## Setup
 
-### 1. Start auth service
+### Prerequisites
 
-qr-api depends on auth's Postgres. Start [rust-generic-user-backend](https://github.com/Sonit90/rust-generic-user-backend) first — it brings up Postgres on `localhost:5434` and creates `auth.*` schema.
+- Docker + Docker Compose v2
+- Auth service running ([rust-generic-user-backend](https://github.com/Sonit90/rust-generic-user-backend)) — provides Postgres on `localhost:5434` with `auth.*` schema.
 
-### 2. Configure env
+### 1. Configure env
 
 ```sh
 cp .env.example .env
-# Edit .env:
-#   - APP__AUTH__JWT_SECRET → copy from auth service's config (must match exactly)
-#   - DATABASE_URL → match auth's Postgres credentials
 ```
 
-### 3. Run with Docker (recommended)
+Edit `.env` and set the values that must match the auth service:
+
+| Variable                  | Action                                              |
+|---------------------------|-----------------------------------------------------|
+| `APP__AUTH__JWT_SECRET`   | Copy from auth's config — must match exactly        |
+| `APP__AUTH__JWT_ISSUER`   | Match auth's issuer (default `generic-auth`)        |
+| `DATABASE_URL`            | Native run: `localhost:5434` to auth's Postgres     |
+| `DOCKER_DB_URL`           | Docker run: `host.docker.internal:5434`             |
+| `RUSTFS_ROOT_USER`/`_PASSWORD` | RustFS admin credentials (also used as S3 keys) |
+
+All other vars have sensible defaults — see `.env.example` for the full list.
+
+### 2A. Run with Docker (recommended)
 
 ```sh
-docker compose up --build
+docker compose up --build -d
 ```
 
-Brings up: RustFS (S3), bucket-init, qr-api. qr-api connects to auth's Postgres via `host.docker.internal:5434`.
+Brings up three containers:
+- `${RUSTFS_CONTAINER_NAME}` — RustFS S3 on host port `${RUSTFS_S3_PORT}`, console on `${RUSTFS_CONSOLE_PORT}`
+- `${RUSTFS_INIT_CONTAINER_NAME}` — one-shot bucket creator (exits after success)
+- `${QR_API_CONTAINER_NAME}` — qr-api on host port `${QR_API_HOST_PORT}`
 
-### 4. Run natively (alternative)
+qr-api migrations run automatically. Logs:
+```sh
+docker compose logs -f qr-api
+```
+
+### 2B. Run natively (development)
+
+Requires Postgres + RustFS running (use docker compose for the latter):
 
 ```sh
-# RustFS must be running separately (or via this compose)
 docker compose up -d rustfs rustfs-init
 cargo run -p qr-api
 ```
 
-qr-api migrations run automatically on startup, creating `qr.*` schema. Server listens on `SERVER_PORT` (default `3001`).
+Server reads vars from `.env` directly (note: native run uses `DATABASE_URL`, not `DOCKER_DB_URL`).
 
-Open `http://localhost:3001/api/docs` for interactive API docs.
-Open `http://localhost:9001` for RustFS console (login `rustfsadmin` / `rustfsadmin`).
+### Verify
+
+- `http://localhost:3001/api/health` → `ok`
+- `http://localhost:3001/api/docs` → Swagger UI
+- `http://localhost:9001` → RustFS console (login = `RUSTFS_ROOT_USER` / `RUSTFS_ROOT_PASSWORD`)
+
+## Deployment
+
+### Production checklist
+
+1. **Secrets**: rotate `APP__AUTH__JWT_SECRET`, `RUSTFS_ROOT_USER`, `RUSTFS_ROOT_PASSWORD`. Never commit `.env`.
+2. **APP_ENV**: set to `production` → JSON tracing + strict CORS.
+3. **CORS**: set `APP__CORS__ALLOWED_ORIGINS` to comma-separated frontend origins.
+4. **Storage URL**: set `APP__STORAGE__PUBLIC_BASE_URL` to your CDN / reverse-proxy URL (NOT `localhost`).
+5. **RustFS access**: production should NOT expose `RUSTFS_S3_PORT` publicly. Front with CDN or reverse-proxy that serves `qr-images/*` read-only.
+6. **DB**: point `DOCKER_DB_URL` to managed Postgres. Drop `host.docker.internal` — use proper DNS/connection string.
+7. **TLS**: terminate at reverse-proxy (nginx, traefik, caddy). qr-api speaks plain HTTP behind it.
+
+### Build production image
+
+```sh
+docker build -t qr-api:$(git rev-parse --short HEAD) .
+```
+
+### Image tag override
+
+In `.env`:
+```
+QR_API_IMAGE=registry.example.com/qr-api
+QR_API_IMAGE_TAG=v0.1.0
+```
+
+### Migrations
+
+Migrations are embedded in the binary at compile time via `sqlx::migrate!`. They run on every `qr-api` startup against the `qr` schema. No separate migration step needed.
+
+### Volume backups
+
+- `rustfs_data` named volume holds all uploaded PNGs. Snapshot regularly.
+- Postgres is owned by the auth service — back up there.
 
 ## API endpoints (v1)
 

@@ -1,19 +1,20 @@
 # qr-api stack: RustFS (S3-compatible) + qr-api itself.
+# All configuration values come from .env (see .env.example).
 # Postgres comes from the auth service (rust-generic-user-backend) — qr-api
 # reaches it via host network (host.docker.internal:5434 by default).
 
 services:
   rustfs:
-    image: rustfs/rustfs:latest
-    container_name: qr-rustfs
+    image: rustfs/rustfs:${RUSTFS_IMAGE_TAG:-latest}
+    container_name: ${RUSTFS_CONTAINER_NAME:-qr-rustfs}
     restart: unless-stopped
     command: ["server", "/data", "--address", ":9000", "--console-address", ":9001"]
     environment:
-      RUSTFS_ROOT_USER: rustfsadmin
-      RUSTFS_ROOT_PASSWORD: rustfsadmin
+      RUSTFS_ROOT_USER: ${RUSTFS_ROOT_USER}
+      RUSTFS_ROOT_PASSWORD: ${RUSTFS_ROOT_PASSWORD}
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
+      - "${RUSTFS_S3_PORT:-9000}:9000"        # S3 API
+      - "${RUSTFS_CONSOLE_PORT:-9001}:9001"   # Web console
     volumes:
       - rustfs_data:/data
     healthcheck:
@@ -26,27 +27,31 @@ services:
       start_period: 10s
 
   rustfs-init:
-    image: minio/mc:latest
-    container_name: qr-rustfs-init
+    image: minio/mc:${MC_IMAGE_TAG:-latest}
+    container_name: ${RUSTFS_INIT_CONTAINER_NAME:-qr-rustfs-init}
     depends_on:
       rustfs:
         condition: service_healthy
+    environment:
+      RUSTFS_ROOT_USER: ${RUSTFS_ROOT_USER}
+      RUSTFS_ROOT_PASSWORD: ${RUSTFS_ROOT_PASSWORD}
+      QR_BUCKET: ${APP__STORAGE__BUCKET:-qr-images}
     entrypoint:
       - sh
       - -c
       - |
         set -e
-        mc alias set local http://rustfs:9000 rustfsadmin rustfsadmin
-        mc mb --ignore-existing local/qr-images
-        mc anonymous set public local/qr-images
-        echo "Bucket qr-images ready (public)"
+        mc alias set local http://rustfs:9000 "$$RUSTFS_ROOT_USER" "$$RUSTFS_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$QR_BUCKET"
+        mc anonymous set public "local/$$QR_BUCKET"
+        echo "Bucket $$QR_BUCKET ready (public)"
 
   qr-api:
     build:
       context: .
       dockerfile: Dockerfile
-    image: qr-api:local
-    container_name: qr-api
+    image: ${QR_API_IMAGE:-qr-api}:${QR_API_IMAGE_TAG:-local}
+    container_name: ${QR_API_CONTAINER_NAME:-qr-api}
     restart: unless-stopped
     depends_on:
       rustfs:
@@ -54,25 +59,25 @@ services:
       rustfs-init:
         condition: service_completed_successfully
     ports:
-      - "3001:3001"
+      - "${QR_API_HOST_PORT:-3001}:3001"
     environment:
-      APP_ENV: development
-      RUST_LOG: info,qr_api=debug,sqlx=warn
-      SERVER_HOST: 0.0.0.0
-      SERVER_PORT: "3001"
-      # DB URL is container-specific (host.docker.internal reaches auth's postgres on host).
+      APP_ENV: ${APP_ENV:-production}
+      RUST_LOG: ${RUST_LOG:-info,qr_api=debug,sqlx=warn}
+      SERVER_HOST: ${DOCKER_SERVER_HOST:-0.0.0.0}
+      SERVER_PORT: ${DOCKER_SERVER_PORT:-3001}
+      # DB URL is container-specific. host.docker.internal reaches auth's postgres on host.
       DATABASE_URL: ${DOCKER_DB_URL}
       APP__AUTH__JWT_SECRET: ${APP__AUTH__JWT_SECRET}
       APP__AUTH__JWT_ISSUER: ${APP__AUTH__JWT_ISSUER:-generic-auth}
       APP__AUTH__JWT_ACCESS_TTL_MIN: ${APP__AUTH__JWT_ACCESS_TTL_MIN:-30}
       APP__AUTH__JWT_REFRESH_TTL_DAYS: ${APP__AUTH__JWT_REFRESH_TTL_DAYS:-14}
       APP__CORS__ALLOWED_ORIGINS: ${APP__CORS__ALLOWED_ORIGINS:-}
-      APP__STORAGE__ENDPOINT_URL: http://rustfs:9000
-      APP__STORAGE__BUCKET: qr-images
-      APP__STORAGE__REGION: us-east-1
-      APP__STORAGE__ACCESS_KEY: rustfsadmin
-      APP__STORAGE__SECRET_KEY: rustfsadmin
-      APP__STORAGE__PUBLIC_BASE_URL: http://localhost:9000/qr-images
+      APP__STORAGE__ENDPOINT_URL: ${DOCKER_STORAGE_ENDPOINT_URL:-http://rustfs:9000}
+      APP__STORAGE__BUCKET: ${APP__STORAGE__BUCKET:-qr-images}
+      APP__STORAGE__REGION: ${APP__STORAGE__REGION:-us-east-1}
+      APP__STORAGE__ACCESS_KEY: ${RUSTFS_ROOT_USER}
+      APP__STORAGE__SECRET_KEY: ${RUSTFS_ROOT_PASSWORD}
+      APP__STORAGE__PUBLIC_BASE_URL: ${APP__STORAGE__PUBLIC_BASE_URL}
       DISABLED_QR_FRONTEND_URL: ${DISABLED_QR_FRONTEND_URL:-http://localhost:3000/qr-disabled}
       REDIRECT_BASE_URL: ${REDIRECT_BASE_URL:-http://localhost:3001/r}
     extra_hosts:
