@@ -20,6 +20,7 @@ thiserror.workspace = true
 futures.workspace = true
 generic-auth-auth.workspace = true
 generic-auth-core.workspace = true
+sqlx.workspace = true
 
 qr-domain = { path = "../domain" }
 qr-db = { path = "../db" }
