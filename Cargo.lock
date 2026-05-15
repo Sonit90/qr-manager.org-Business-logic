@@ -2046,7 +2046,6 @@ dependencies = [
  "generic-auth-auth",
  "qr-db",
  "qr-domain",
- "serde",
  "serde_json",
  "sqlx",
  "thiserror 1.0.69",
