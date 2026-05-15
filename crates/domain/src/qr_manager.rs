@@ -1,5 +1,4 @@
 use qr_db::{models::*, QrRepository};
-use rand::Rng;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -13,7 +12,7 @@ impl QrManager {
         user_id: Uuid,
         target_url: String,
     ) -> DomainResult<(QrCode, TargetUrl)> {
-        let code = Self::generate_unique_code(pool).await?;
+        let code = Uuid::new_v4().to_string();
         let result = QrRepository::create_qr(pool, user_id, code, target_url).await?;
         Ok(result)
     }
@@ -88,27 +87,4 @@ impl QrManager {
         Ok(result)
     }
 
-    async fn generate_unique_code(pool: &PgPool) -> DomainResult<String> {
-        const CHARSET: &[u8] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        const CODE_LEN: usize = 8;
-
-        for _ in 0..10 {
-            let code: String = {
-                let mut rng = rand::thread_rng();
-                (0..CODE_LEN)
-                    .map(|_| {
-                        let idx = rng.gen_range(0..CHARSET.len());
-                        CHARSET[idx] as char
-                    })
-                    .collect()
-            };
-
-            if QrRepository::get_qr_by_code(pool, &code).await?.is_none() {
-                return Ok(code);
-            }
-        }
-
-        Err(DomainError::CodeGenerationFailed)
-    }
 }

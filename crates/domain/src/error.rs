@@ -11,9 +11,6 @@ pub enum DomainError {
     #[error("Target URL not found")]
     TargetUrlNotFound,
 
-    #[error("Failed to generate unique QR code")]
-    CodeGenerationFailed,
-
     #[error("Image generation failed: {0}")]
     ImageGeneration(String),
 }

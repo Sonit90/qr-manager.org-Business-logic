@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/api", "crates/domain", "crates/db", "crates/shared"]
+members = ["crates/api", "crates/domain", "crates/db"]
 resolver = "2"
 
 [workspace.package]
@@ -12,13 +12,10 @@ publish = false
 [workspace.dependencies]
 # Async runtime
 tokio = { version = "1.39", features = ["full"] }
-async-trait = "0.1"
 
 # HTTP stack (Axum)
-axum = { version = "0.8", features = ["macros", "multipart"] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors", "limit", "compression-gzip", "request-id"] }
-hyper = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["macros"] }
+tower-http = { version = "0.6", features = ["trace"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -36,21 +33,13 @@ sqlx = { version = "0.8", default-features = false, features = [
     "postgres",
     "uuid",
     "time",
-    "json",
     "macros",
     "migrate",
 ] }
 
 # IDs & time
-uuid = { version = "1", features = ["v4", "v7", "serde"] }
-time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
-
-# Auth/crypto
-jsonwebtoken = "9"
-rand = "0.8"
-
-# Validation
-validator = { version = "0.18", features = ["derive"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["serde", "macros"] }
 
 # OpenAPI
 utoipa = { version = "5", features = ["axum_extras", "uuid", "time"] }
@@ -62,12 +51,9 @@ image = "0.25"
 
 # Config
 dotenvy = "0.15"
-config = { version = "0.14", default-features = false, features = ["toml"] }
 
 # generic-auth git deps
 generic-auth-auth = { git = "https://github.com/Sonit90/rust-generic-user-backend.git", branch = "main" }
-generic-auth-core = { git = "https://github.com/Sonit90/rust-generic-user-backend.git", branch = "main" }
-generic-auth-db = { git = "https://github.com/Sonit90/rust-generic-user-backend.git", branch = "main" }
 
 [profile.release]
 lto = "thin"
