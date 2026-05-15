@@ -40,11 +40,7 @@ utoipa-swagger-ui.workspace = true
 
 # Config
 dotenvy.workspace = true
-
-# Object storage (RustFS / S3)
-aws-config.workspace = true
 aws-sdk-s3.workspace = true
-aws-credential-types.workspace = true
 
 # generic-auth integration
 generic-auth-auth.workspace = true

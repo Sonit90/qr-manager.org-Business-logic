@@ -60,7 +60,8 @@ services:
       RUST_LOG: info,qr_api=debug,sqlx=warn
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: "3001"
-      DATABASE_URL: ${DATABASE_URL:-postgresql://auth_user:auth_password@host.docker.internal:5434/auth_db}
+      # DB URL is container-specific (host.docker.internal reaches auth's postgres on host).
+      DATABASE_URL: ${DOCKER_DB_URL}
       APP__AUTH__JWT_SECRET: ${APP__AUTH__JWT_SECRET}
       APP__AUTH__JWT_ISSUER: ${APP__AUTH__JWT_ISSUER:-generic-auth}
       APP__AUTH__JWT_ACCESS_TTL_MIN: ${APP__AUTH__JWT_ACCESS_TTL_MIN:-30}

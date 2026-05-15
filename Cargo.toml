@@ -48,11 +48,7 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 # QR generation
 qrcode = "0.14"
 image = "0.25"
-
-# Object storage (RustFS / S3-compatible)
-aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1"
-aws-credential-types = "1"
 
 # Config
 dotenvy = "0.15"
