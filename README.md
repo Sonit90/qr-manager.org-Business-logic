@@ -170,12 +170,15 @@ Migrations are embedded in the binary at compile time via `sqlx::migrate!`. They
 | `APP__AUTH__JWT_ACCESS_TTL_MIN`       | no       | `30`                                       |                                        |
 | `APP__AUTH__JWT_REFRESH_TTL_DAYS`     | no       | `14`                                       |                                        |
 | `APP__CORS__ALLOWED_ORIGINS`          | prod     | empty                                      | Comma-separated; ignored in dev        |
-| `APP__STORAGE__ENDPOINT_URL`          | **yes**  | —                                          | RustFS/S3 endpoint (e.g. `http://rustfs:9000`) |
+| `APP__STORAGE__ENDPOINT_URL`          | **yes**  | —                                          | RustFS/S3 endpoint (e.g. `http://localhost:9000`); docker stack hardcodes `http://rustfs:9000` |
 | `APP__STORAGE__BUCKET`                | no       | `qr-images`                                |                                        |
-| `APP__STORAGE__REGION`                | no       | `us-east-1`                                | S3-compatibility placeholder           |
-| `APP__STORAGE__ACCESS_KEY`            | **yes**  | —                                          |                                        |
-| `APP__STORAGE__SECRET_KEY`            | **yes**  | —                                          |                                        |
+| `APP__STORAGE__ACCESS_KEY`            | **yes**  | —                                          | Native run only; docker reuses `RUSTFS_ROOT_USER` |
+| `APP__STORAGE__SECRET_KEY`            | **yes**  | —                                          | Native run only; docker reuses `RUSTFS_ROOT_PASSWORD` |
 | `APP__STORAGE__PUBLIC_BASE_URL`       | **yes**  | —                                          | Prefix used in `image_url` responses   |
+| `RUSTFS_ROOT_USER` / `_PASSWORD`      | **yes**  | —                                          | RustFS admin creds; docker passes as S3 keys |
+| `RUSTFS_S3_PORT` / `_CONSOLE_PORT`    | no       | `9000` / `9001`                            | Host port mappings                     |
+| `QR_API_HOST_PORT`                    | no       | `3001`                                     | Host port mapping to qr-api container  |
+| `DOCKER_DB_URL`                       | docker   | —                                          | DB URL inside docker container (use `host.docker.internal:5434`) |
 | `DISABLED_QR_FRONTEND_URL`            | no       | `http://localhost:3000/qr-disabled`        | Redirect target for disabled QRs       |
 | `REDIRECT_BASE_URL`                   | no       | `http://localhost:3001/r`                  | Embedded in PNG QR images              |
 
