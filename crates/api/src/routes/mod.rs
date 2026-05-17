@@ -1,3 +1,4 @@
+pub mod contact;
 pub mod health;
 pub mod qr;
 pub mod redirect;
@@ -22,12 +23,15 @@ pub fn build_router(state: AppState) -> Router {
         .route("/qr/{id}/scans", get(qr::get_scan_logs))
         .route_layer(axum_mw::from_fn_with_state(state.clone(), require_auth));
 
+    let public_v1 = Router::new().route("/contact", post(contact::submit_contact));
+
     let public = Router::new()
         .route("/api/health", get(health::health))
         .route("/r/{qr_code}", get(redirect::redirect_qr));
 
     Router::new()
         .nest("/api/v1", protected)
+        .nest("/api/v1", public_v1)
         .merge(public)
         .with_state(state)
 }

@@ -2726,6 +2726,7 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
+ "validator",
 ]
 
 [[package]]
@@ -2737,6 +2738,7 @@ dependencies = [
  "time",
  "utoipa",
  "uuid",
+ "validator",
 ]
 
 [[package]]

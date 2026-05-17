@@ -50,6 +50,9 @@ qrcode = "0.14"
 image = "0.25"
 aws-sdk-s3 = "1"
 
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
 # Config
 dotenvy = "0.15"
 

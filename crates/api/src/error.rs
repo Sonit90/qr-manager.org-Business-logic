@@ -18,6 +18,9 @@ pub enum AppError {
     #[error("not found")]
     NotFound,
 
+    #[error("validation error: {0}")]
+    Validation(String),
+
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -31,6 +34,7 @@ impl IntoResponse for AppError {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
+            AppError::Validation(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::Domain(DomainError::QrNotFound)
             | AppError::Domain(DomainError::TargetUrlNotFound) => {
                 (StatusCode::NOT_FOUND, self.to_string())

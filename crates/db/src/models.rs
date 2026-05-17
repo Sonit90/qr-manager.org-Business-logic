@@ -3,6 +3,7 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use utoipa::ToSchema;
 use uuid::Uuid;
+use validator::Validate;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct QrCode {
@@ -114,4 +115,36 @@ pub struct UpdateNameResponse {
     pub name: String,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct ContactMessage {
+    pub id: Uuid,
+    pub name: String,
+    pub email: String,
+    pub message: String,
+    pub ip: Option<String>,
+    pub user_agent: Option<String>,
+    pub captcha_token: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
+pub struct CreateContactMessageRequest {
+    #[validate(length(min = 2, max = 100, message = "name must be 2-100 characters"))]
+    pub name: String,
+    #[validate(email(message = "invalid email format"))]
+    #[validate(length(max = 320, message = "email too long"))]
+    pub email: String,
+    #[validate(length(min = 10, max = 5000, message = "message must be 10-5000 characters"))]
+    pub message: String,
+    pub captcha_token: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ContactMessageResponse {
+    pub id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
 }

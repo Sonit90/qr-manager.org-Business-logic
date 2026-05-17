@@ -1,7 +1,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::models::{QrCode, ScanLog, TargetUrl};
+use crate::models::{ContactMessage, QrCode, ScanLog, TargetUrl};
 
 pub struct QrRepository;
 
@@ -221,6 +221,37 @@ impl ScanRepository {
         .bind(user_agent)
         .bind(browser)
         .bind(device_type)
+        .fetch_one(pool)
+        .await
+    }
+}
+
+pub struct ContactRepository;
+
+impl ContactRepository {
+    pub async fn create(
+        pool: &PgPool,
+        name: String,
+        email: String,
+        message: String,
+        ip: Option<String>,
+        user_agent: Option<String>,
+        captcha_token: Option<String>,
+    ) -> Result<ContactMessage, sqlx::Error> {
+        sqlx::query_as::<_, ContactMessage>(
+            r#"
+            INSERT INTO qr.contact_messages
+                (name, email, message, ip, user_agent, captcha_token)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+            "#,
+        )
+        .bind(name)
+        .bind(email)
+        .bind(message)
+        .bind(ip)
+        .bind(user_agent)
+        .bind(captcha_token)
         .fetch_one(pool)
         .await
     }

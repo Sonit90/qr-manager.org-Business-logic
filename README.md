@@ -149,6 +149,12 @@ Migrations are embedded in the binary at compile time via `sqlx::migrate!`. They
 | GET    | `/api/health`     | —    | Liveness check, returns `ok`                             |
 | GET    | `/r/{qr_code}`    | —    | Log scan, redirect to target (or disabled-frontend URL)  |
 
+### Contact
+
+| Method | Path                 | Auth | Description                                                                |
+|--------|----------------------|------|----------------------------------------------------------------------------|
+| POST   | `/api/v1/contact`    | —    | Submit contact-form message (validated, stored with IP + UA + optional captcha) |
+
 ### OpenAPI
 
 | Method | Path                          | Auth | Description                          |

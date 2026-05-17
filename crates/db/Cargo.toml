@@ -11,3 +11,4 @@ serde.workspace = true
 uuid.workspace = true
 time.workspace = true
 utoipa.workspace = true
+validator.workspace = true

@@ -4,7 +4,7 @@ use utoipa::{
     Modify, OpenApi,
 };
 
-use crate::routes::{health, qr, redirect};
+use crate::routes::{contact, health, qr, redirect};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -24,6 +24,7 @@ use crate::routes::{health, qr, redirect};
         qr::get_scan_logs,
         qr::delete_qr,
         redirect::redirect_qr,
+        contact::submit_contact,
     ),
     components(schemas(
         CreateQrRequest,
@@ -36,13 +37,16 @@ use crate::routes::{health, qr, redirect};
         TargetUrlResponse,
         ToggleEnabledResponse,
         UpdateNameResponse,
+        CreateContactMessageRequest,
+        ContactMessageResponse,
     )),
     modifiers(&SecurityAddon),
     tags(
         (name = "QR", description = "QR code management"),
         (name = "Analytics", description = "Scan statistics"),
         (name = "Public", description = "Public scan endpoint"),
-        (name = "Health", description = "Service health check")
+        (name = "Health", description = "Service health check"),
+        (name = "Contact", description = "Contact form submissions")
     )
 )]
 pub struct ApiDoc;

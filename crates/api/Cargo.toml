@@ -38,6 +38,9 @@ uuid.workspace = true
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
 
+# Validation
+validator.workspace = true
+
 # Config
 dotenvy.workspace = true
 aws-sdk-s3.workspace = true
