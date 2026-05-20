@@ -33,6 +33,12 @@ pub async fn create_qr(
     State(state): State<AppState>,
     Json(req): Json<CreateQrRequest>,
 ) -> AppResult<(StatusCode, Json<QrCodeResponse>)> {
+    if is_own_redirect_url(&req.target_url, &state.config.redirect_base_url) {
+        return Err(AppError::Validation(
+            "target URL cannot point to a scan URL of this service".to_string(),
+        ));
+    }
+
     let (qr, target_url) =
         QrManager::create_qr(&state.pool, user.id, req.name, req.target_url).await?;
 
@@ -144,6 +150,12 @@ pub async fn update_target_url(
 
     if qr.user_id != user.id {
         return Err(AppError::Forbidden);
+    }
+
+    if is_own_redirect_url(&req.url, &state.config.redirect_base_url) {
+        return Err(AppError::Validation(
+            "target URL cannot point to a scan URL of this service".to_string(),
+        ));
     }
 
     let target_url = QrManager::update_target_url(&state.pool, qr_id, req.url).await?;
@@ -412,6 +424,11 @@ fn download_response(bytes: Vec<u8>, content_type: &str, filename: &str) -> Resp
         HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")).unwrap(),
     );
     (headers, Body::from(bytes)).into_response()
+}
+
+fn is_own_redirect_url(url: &str, redirect_base_url: &str) -> bool {
+    let base = redirect_base_url.trim_end_matches('/');
+    url.starts_with(&format!("{}/", base)) || url == base
 }
 
 async fn upload_qr_image(state: &AppState, qr: &QrCode) -> AppResult<(String, &'static str)> {
