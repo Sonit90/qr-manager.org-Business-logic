@@ -49,6 +49,7 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 qrcode = "0.14"
 image = "0.25"
 aws-sdk-s3 = "1"
+resvg = "0.43"
 
 # Validation
 validator = { version = "0.18", features = ["derive"] }

@@ -22,8 +22,9 @@ impl QrManager {
         pool: &PgPool,
         qr_id: Uuid,
         image_url: String,
+        image_format: &str,
     ) -> DomainResult<QrCode> {
-        let qr = QrRepository::set_image_url(pool, qr_id, image_url).await?;
+        let qr = QrRepository::set_image_url(pool, qr_id, image_url, image_format).await?;
         Ok(qr)
     }
 

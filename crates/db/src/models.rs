@@ -12,6 +12,7 @@ pub struct QrCode {
     pub code: String,
     pub name: Option<String>,
     pub image_url: Option<String>,
+    pub image_format: String,
     pub enabled: bool,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,

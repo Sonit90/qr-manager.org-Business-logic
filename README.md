@@ -10,7 +10,7 @@ Dynamic QR code backend. Users create named QR codes pointing to a redirect URL;
 - **Auth**: JWT validation via [`rust-generic-user-backend`](https://github.com/Sonit90/rust-generic-user-backend) (`generic-auth-auth` crate, git dep)
 - **Logging**: `tracing` (pretty in dev, JSON in prod — toggled by `APP_ENV`)
 - **OpenAPI**: `utoipa` annotations → Swagger UI at `/api/docs`
-- **QR**: `qrcode` + `image` crates → PNG bytes
+- **QR**: `qrcode` + `image` + `resvg` crates → SVG storage, on-demand raster export
 
 ## Architecture
 
@@ -32,7 +32,7 @@ Each service tracks its migrations in its OWN `_sqlx_migrations` table — auth'
 
 FK: `qr.qr_codes.user_id REFERENCES auth.users(id) ON DELETE CASCADE`. Deleting a user cascades to their QR codes (no orphans).
 
-**Object storage**: PNG images live in RustFS bucket `qr-images`, keyed `{qr_id}.png`. Bucket is publicly readable; URLs returned in API responses are direct.
+**Object storage**: SVG images live in RustFS bucket `qr-images`, keyed `{qr_id}.svg`. Legacy PNG images (pre-migration) are keyed `{qr_id}.png`. Bucket is publicly readable; URLs returned in API responses are direct.
 
 ## Setup
 
@@ -124,7 +124,7 @@ Migrations are embedded in the binary at compile time via `sqlx::migrate!`. They
 
 ### Volume backups
 
-- `rustfs_data` named volume holds all uploaded PNGs. Snapshot regularly.
+- `rustfs_data` named volume holds all uploaded QR images (SVG for new, PNG for legacy). Snapshot regularly.
 - Postgres is owned by the auth service — back up there.
 
 ## API endpoints (v1)
@@ -133,12 +133,13 @@ Migrations are embedded in the binary at compile time via `sqlx::migrate!`. They
 
 | Method | Path                          | Auth   | Description                              |
 |--------|-------------------------------|--------|------------------------------------------|
-| POST   | `/api/v1/qr`                  | Bearer | Create QR + initial target URL + name; PNG uploaded to RustFS |
+| POST   | `/api/v1/qr`                  | Bearer | Create QR + initial target URL + name; SVG uploaded to RustFS |
 | GET    | `/api/v1/qr`                  | Bearer | List authenticated user's QRs            |
 | GET    | `/api/v1/qr/{id}`             | Bearer | Get QR details + scan count + image URL  |
 | DELETE | `/api/v1/qr/{id}`             | Bearer | Delete QR + cascade scans                |
 | PATCH  | `/api/v1/qr/{id}/enabled`     | Bearer | Toggle enabled/disabled                  |
 | PATCH  | `/api/v1/qr/{id}/name`        | Bearer | Update QR name                           |
+| GET    | `/api/v1/qr/{id}/export`      | Bearer | Export QR as SVG, PNG, WebP, or JPEG (query: `format`, `width`, `height`) |
 | GET    | `/api/v1/qr/{id}/scans`       | Bearer | Scan stats + recent logs                 |
 | PUT    | `/api/v1/qr/{id}/target`      | Bearer | Update target URL (appends new version)  |
 
@@ -186,7 +187,7 @@ Migrations are embedded in the binary at compile time via `sqlx::migrate!`. They
 | `QR_API_HOST_PORT`                    | no       | `3001`                                     | Host port mapping to qr-api container  |
 | `DOCKER_DB_URL`                       | docker   | —                                          | DB URL inside docker container (use `host.docker.internal:5434`) |
 | `DISABLED_QR_FRONTEND_URL`            | no       | `http://localhost:3000/qr-disabled`        | Redirect target for disabled QRs       |
-| `REDIRECT_BASE_URL`                   | no       | `http://localhost:3001/r`                  | Embedded in PNG QR images              |
+| `REDIRECT_BASE_URL`                   | no       | `http://localhost:3001/r`                  | Embedded in QR images (SVG and raster) |
 
 ## Auth flow
 
@@ -200,9 +201,11 @@ JWT secret + issuer must match auth service's config.
 
 ## QR image lifecycle
 
-- **On create** (`POST /api/v1/qr`): PNG generated (referring to `/r/{code}`), uploaded to RustFS at `{qr_id}.png`, public URL stored in `qr.qr_codes.image_url`.
-- **On read** (`GET /api/v1/qr/{id}`): if `image_url` is null (legacy row or upload failed), it's regenerated + uploaded lazily, then saved.
-- The QR's `code` (and thus scan URL) never changes — only `target_url` does. Stored PNG stays valid forever.
+- **On create** (`POST /api/v1/qr`): SVG generated (referring to `/r/{code}`), uploaded to RustFS at `{qr_id}.svg`, public URL stored in `qr.qr_codes.image_url`. Format recorded as `svg` in `image_format` column.
+- **On read** (`GET /api/v1/qr/{id}`): if `image_url` is null (legacy row or upload failed), SVG is regenerated + uploaded lazily, then saved.
+- **On export** (`GET /api/v1/qr/{id}/export`): SVG re-generated on the fly; raster formats (PNG, JPEG, WebP) rasterized at the requested dimensions (150–5000 px). Existing stored files are not used for export.
+- Legacy rows (created before migration 007) have `image_format = 'png'` and their existing S3 PNG files remain untouched.
+- The QR's `code` (and thus scan URL) never changes — only `target_url` does. Stored SVG stays valid forever.
 
 ## Disabled QR behavior
 

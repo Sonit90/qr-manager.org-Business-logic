@@ -11,5 +11,6 @@ qrcode.workspace = true
 image.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
+resvg.workspace = true
 
 qr-db = { path = "../db" }

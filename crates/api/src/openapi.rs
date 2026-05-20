@@ -23,6 +23,7 @@ use crate::routes::{contact, health, qr, redirect};
         qr::toggle_qr_enabled,
         qr::get_scan_logs,
         qr::delete_qr,
+        qr::export_qr,
         redirect::redirect_qr,
         contact::submit_contact,
     ),

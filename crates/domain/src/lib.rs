@@ -7,6 +7,6 @@ pub mod scan_logger;
 mod tests;
 
 pub use error::{DomainError, DomainResult};
-pub use qr_image::QrImageGenerator;
+pub use qr_image::{ExportFormat, QrImageGenerator};
 pub use qr_manager::QrManager;
 pub use scan_logger::{ScanLogger, ScanStats};

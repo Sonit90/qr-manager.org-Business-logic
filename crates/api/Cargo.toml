@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 # Runtime
 tokio.workspace = true
+serde.workspace = true
 
 # HTTP
 axum.workspace = true

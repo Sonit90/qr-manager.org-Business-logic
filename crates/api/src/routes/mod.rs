@@ -8,7 +8,6 @@ use axum::{
     routing::{delete, get, patch, post, put},
     Router,
 };
-
 use crate::{middleware::require_auth, state::AppState};
 
 pub fn build_router(state: AppState) -> Router {
@@ -20,6 +19,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/qr/{id}/target", put(qr::update_target_url))
         .route("/qr/{id}/name", patch(qr::update_name))
         .route("/qr/{id}/enabled", patch(qr::toggle_qr_enabled))
+        .route("/qr/{id}/export", get(qr::export_qr))
         .route("/qr/{id}/scans", get(qr::get_scan_logs))
         .route_layer(axum_mw::from_fn_with_state(state.clone(), require_auth));
 

@@ -41,11 +41,13 @@ impl QrRepository {
         pool: &PgPool,
         qr_id: Uuid,
         image_url: String,
+        image_format: &str,
     ) -> Result<QrCode, sqlx::Error> {
         sqlx::query_as::<_, QrCode>(
-            "UPDATE qr.qr_codes SET image_url = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+            "UPDATE qr.qr_codes SET image_url = $1, image_format = $2, updated_at = NOW() WHERE id = $3 RETURNING *",
         )
         .bind(image_url)
+        .bind(image_format)
         .bind(qr_id)
         .fetch_one(pool)
         .await

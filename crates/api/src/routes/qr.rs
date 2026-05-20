@@ -1,10 +1,13 @@
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
+    body::Body,
+    extract::{Path, Query, State},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use qr_db::{models::*, QrRepository};
-use qr_domain::{QrImageGenerator, QrManager, ScanLogger};
+use qr_domain::{ExportFormat, QrImageGenerator, QrManager, ScanLogger};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
@@ -33,8 +36,8 @@ pub async fn create_qr(
     let (qr, target_url) =
         QrManager::create_qr(&state.pool, user.id, req.name, req.target_url).await?;
 
-    let image_url = upload_qr_image(&state, &qr).await?;
-    let qr = QrManager::set_image_url(&state.pool, qr.id, image_url).await?;
+    let (image_url, fmt) = upload_qr_image(&state, &qr).await?;
+    let qr = QrManager::set_image_url(&state.pool, qr.id, image_url, fmt).await?;
 
     let response = QrCodeResponse {
         id: qr.id,
@@ -95,10 +98,9 @@ pub async fn get_qr(
         return Err(AppError::Forbidden);
     }
 
-    // Lazy backfill — regenerate + upload PNG if image_url missing
     if qr.image_url.is_none() {
-        let image_url = upload_qr_image(&state, &qr).await?;
-        qr = QrManager::set_image_url(&state.pool, qr.id, image_url).await?;
+        let (image_url, fmt) = upload_qr_image(&state, &qr).await?;
+        qr = QrManager::set_image_url(&state.pool, qr.id, image_url, fmt).await?;
     }
 
     let scan_count = QrRepository::get_scan_count(&state.pool, qr_id).await?;
@@ -313,26 +315,125 @@ pub async fn delete_qr(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn upload_qr_image(state: &AppState, qr: &QrCode) -> AppResult<String> {
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct ExportQuery {
+    /// Output format: `svg` (default), `png`, `jpeg`, `webp`
+    pub format: Option<String>,
+    /// Width in pixels, 150–5000 (raster formats only)
+    pub width: Option<u32>,
+    /// Height in pixels, 150–5000 (raster formats only)
+    pub height: Option<u32>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/qr/{id}/export",
+    tag = "QR",
+    params(
+        ("id" = Uuid, Path, description = "QR code ID"),
+        ExportQuery,
+    ),
+    responses(
+        (status = 200, description = "QR code exported as image file"),
+        (status = 400, description = "Invalid parameters"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Not found")
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn export_qr(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(qr_id): Path<Uuid>,
+    Query(params): Query<ExportQuery>,
+) -> AppResult<Response> {
+    let (qr, _) = QrManager::get_qr_with_target(&state.pool, qr_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+    if qr.user_id != user.id {
+        return Err(AppError::Forbidden);
+    }
+
+    const MIN_DIM: u32 = 150;
+    const MAX_DIM: u32 = 5000;
+
+    if let Some(w) = params.width {
+        if w < MIN_DIM || w > MAX_DIM {
+            return Err(AppError::Validation(format!(
+                "width must be {MIN_DIM}–{MAX_DIM}"
+            )));
+        }
+    }
+    if let Some(h) = params.height {
+        if h < MIN_DIM || h > MAX_DIM {
+            return Err(AppError::Validation(format!(
+                "height must be {MIN_DIM}–{MAX_DIM}"
+            )));
+        }
+    }
+
     let scan_url = format!(
         "{}/{}",
         state.config.redirect_base_url.trim_end_matches('/'),
         qr.code
     );
-    let png = QrImageGenerator::generate_png(&scan_url)?;
-    let key = storage::object_key(qr.id);
 
-    storage::upload_png(&state.s3, &state.config.storage.bucket, &key, png)
+    let format_str = params.format.as_deref().unwrap_or("svg");
+
+    if format_str == "svg" {
+        let svg = QrImageGenerator::generate_svg(&scan_url)?;
+        let filename = format!("qr-{}.svg", qr.code);
+        return Ok(download_response(svg.into_bytes(), "image/svg+xml", &filename));
+    }
+
+    let export_format = ExportFormat::from_str(format_str).ok_or_else(|| {
+        AppError::Validation(format!(
+            "unsupported format '{format_str}'; use svg, png, jpeg, webp"
+        ))
+    })?;
+
+    let svg = QrImageGenerator::generate_svg(&scan_url)?;
+    let bytes = QrImageGenerator::rasterize(&svg, export_format, params.width, params.height)?;
+
+    let filename = format!("qr-{}.{}", qr.code, export_format.extension());
+    Ok(download_response(bytes, export_format.content_type(), &filename))
+}
+
+fn download_response(bytes: Vec<u8>, content_type: &str, filename: &str) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(content_type).unwrap(),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")).unwrap(),
+    );
+    (headers, Body::from(bytes)).into_response()
+}
+
+async fn upload_qr_image(state: &AppState, qr: &QrCode) -> AppResult<(String, &'static str)> {
+    let scan_url = format!(
+        "{}/{}",
+        state.config.redirect_base_url.trim_end_matches('/'),
+        qr.code
+    );
+    let svg = QrImageGenerator::generate_svg(&scan_url)?;
+    let key = storage::object_key(qr.id, "svg");
+
+    storage::upload_svg(&state.s3, &state.config.storage.bucket, &key, svg)
         .await
         .map_err(|e| {
-            tracing::error!(error = ?e, qr_id = %qr.id, "Failed to upload QR PNG to storage");
+            tracing::error!(error = ?e, qr_id = %qr.id, "Failed to upload QR SVG to storage");
             AppError::Database(sqlx::Error::Configuration(
                 format!("storage upload failed: {}", e).into(),
             ))
         })?;
 
-    Ok(storage::public_url(
-        &state.config.storage.public_base_url,
-        &key,
+    Ok((
+        storage::public_url(&state.config.storage.public_base_url, &key),
+        "svg",
     ))
 }
