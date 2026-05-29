@@ -1,37 +1,47 @@
-# syntax=docker/dockerfile:1.6
+# syntax=docker/dockerfile:1.7
 
-# ---- Build stage ----
-FROM rust:1.95-bookworm AS builder
+# ---------- chef ----------
+FROM rust:1.95-bookworm AS chef
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev && \
+    rm -rf /var/lib/apt/lists/* && \
+    cargo install cargo-chef --locked
+WORKDIR /build
 
-WORKDIR /app
+# ---------- planner ----------
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        pkg-config libssl-dev ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# ---------- builder ----------
+FROM chef AS builder
+COPY --from=planner /build/recipe.json recipe.json
+RUN cargo chef cook --release --locked --recipe-path recipe.json
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY migrations ./migrations
 
-RUN cargo build --release --bin qr-api
+RUN cargo build --release --locked --bin qr-api && \
+    cp target/release/qr-api /usr/local/bin/qr-api
 
-# ---- Runtime stage ----
-FROM debian:bookworm-slim
+# ---------- runtime ----------
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl tini && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd --system app && useradd --system --gid app --create-home app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 1001 --gid 0 --create-home --shell /sbin/nologin qrapi
+WORKDIR /app
+COPY --from=builder /usr/local/bin/qr-api /usr/local/bin/qr-api
 
-COPY --from=builder /app/target/release/qr-api /usr/local/bin/qr-api
-
-USER 1001
-
+USER app
 EXPOSE 3001
+ENV APP_ENV=production \
+    RUST_LOG=info,qr_api=info,sqlx=warn
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD curl -fsS http://localhost:3001/api/health || exit 1
 
-CMD ["qr-api"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/usr/local/bin/qr-api"]

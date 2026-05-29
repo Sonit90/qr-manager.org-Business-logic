@@ -26,6 +26,7 @@ services:
 
   rustfs-init:
     image: minio/mc:latest
+    restart: "no"
     depends_on:
       rustfs:
         condition: service_healthy
@@ -44,10 +45,7 @@ services:
         echo "Bucket $$QR_BUCKET ready (public)"
 
   qr-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: qr-api:local
+    image: ${IMAGE_NAME:-qr-api:local}
     restart: unless-stopped
     depends_on:
       rustfs:

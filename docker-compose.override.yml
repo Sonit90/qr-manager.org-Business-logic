@@ -1,0 +1,9 @@
+# Local development override — builds qr-api from source instead of pulling GHCR image.
+# Docker Compose applies this automatically when present; never commit .env or secrets here.
+
+services:
+  qr-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qr-api:local
