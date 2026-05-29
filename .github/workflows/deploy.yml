@@ -58,6 +58,7 @@ jobs:
 
           envs: ENV_FILE,IMAGE_NAME
           script: |
+            export GIT_TERMINAL_PROMPT=0
             REPO_DIR="$HOME/qr-app"
 
             if [ ! -d "$REPO_DIR/.git" ]; then
