@@ -32,7 +32,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --system app && useradd --system --gid app --create-home app
 
-WORKDIR /app
+WORKDIR /qr-app
 COPY --from=builder /usr/local/bin/qr-api /usr/local/bin/qr-api
 
 USER app
